@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model WatchlistItem {
+  id          String    @id @default(cuid())
+  symbol      String    @unique
+  name        String
+  sector      String?
+  notes       String?
+  active      Boolean   @default(true)
+  yoyoScore   Float?
+  yoyoScoreAt DateTime?
+  addedAt     DateTime  @default(now())
+
+  signals   Signal[]
+  trades    Trade[]
+  priceBars PriceBar[]
+
+  @@index([active])
+}
+
+model PriceBar {
+  id     String   @id @default(cuid())
+  symbol String
+  date   DateTime @db.Date
+  open   Float
+  high   Float
+  low    Float
+  close  Float
+  volume BigInt
+
+  watchlistItem WatchlistItem @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
+
+  @@unique([symbol, date])
+}
+
+enum SignalType {
+  BUY
+  SHORT
+}
+
+model Signal {
+  id                String     @id @default(cuid())
+  symbol            String
+  date              DateTime   @db.Date
+  type              SignalType
+  streakLength      Int
+  cumulativeMovePct Float
+  createdAt         DateTime   @default(now())
+
+  watchlistItem WatchlistItem @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
+  trades        Trade[]
+
+  @@unique([symbol, date, type])
+}
+
+enum TradeDirection {
+  LONG
+  SHORT
+}
+
+enum TradeStatus {
+  OPEN
+  CLOSED
+}
+
+model Trade {
+  id         String         @id @default(cuid())
+  symbol     String
+  direction  TradeDirection
+  entryPrice Float
+  quantity   Float
+  entryDate  DateTime       @db.Date
+  exitPrice  Float?
+  exitDate   DateTime?      @db.Date
+  exitReason String?
+  notes      String?
+  status     TradeStatus    @default(OPEN)
+  realizedPL Float?
+  signalId   String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  watchlistItem WatchlistItem @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
+  signal        Signal?       @relation(fields: [signalId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+}
+
+model Settings {
+  id               Int      @id @default(1)
+  positionSizeUsd  Float    @default(500)
+  maxOpenPositions Int      @default(5)
+  minSignalMovePct Float    @default(3.0)
+  kieModel         String   @default("")
+  updatedAt        DateTime @updatedAt
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  signalId  String?
+  createdAt DateTime @default(now())
+
+  @@index([read])
+}

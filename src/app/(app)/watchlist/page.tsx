@@ -1,12 +1,14 @@
-import { LayoutList } from "lucide-react";
-import { ComingSoon } from "@/components/layout/coming-soon";
+import { prisma } from "@/lib/db";
+import { toWatchlistItemDTO } from "@/lib/watchlist-dto";
+import { WatchlistTable } from "@/components/watchlist/watchlist-table";
 
-export default function WatchlistPage() {
-  return (
-    <ComingSoon
-      icon={LayoutList}
-      title="Watchlist coming in Phase 2"
-      description="Add and remove tickers, see sector and yo-yo score once the database is connected."
-    />
-  );
+export const dynamic = "force-dynamic";
+
+export default async function WatchlistPage() {
+  const items = await prisma.watchlistItem.findMany({
+    where: { active: true },
+    orderBy: { addedAt: "desc" },
+  });
+
+  return <WatchlistTable initialItems={items.map(toWatchlistItemDTO)} />;
 }

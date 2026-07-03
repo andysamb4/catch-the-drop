@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { appleSplashScreens } from "@/lib/apple-splash";
 import { ServiceWorkerRegister } from "@/components/layout/service-worker-register";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -46,6 +47,7 @@ export default function RootLayout({
       <body className="antialiased bg-background text-foreground">
         {children}
         <ServiceWorkerRegister />
+        <Toaster position="top-center" />
       </body>
     </html>
   );
