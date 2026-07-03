@@ -1,12 +1,9 @@
-import { History } from "lucide-react";
-import { ComingSoon } from "@/components/layout/coming-soon";
+import { getAllSignals } from "@/lib/signal-dto";
+import { SignalsTable } from "@/components/signals/signals-table";
 
-export default function SignalsPage() {
-  return (
-    <ComingSoon
-      icon={History}
-      title="Signal history coming in Phase 3"
-      description="Every BUY and SHORT signal, sortable and filterable, once the nightly cron is live."
-    />
-  );
+export const dynamic = "force-dynamic";
+
+export default async function SignalsPage() {
+  const signals = await getAllSignals();
+  return <SignalsTable signals={signals} />;
 }

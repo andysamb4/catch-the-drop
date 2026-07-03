@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, verifySessionCookieValue } from "@/lib/auth";
 
-const PUBLIC_PATHS = ["/login", "/api/auth"];
+// /api/cron bypasses the password gate because Vercel Cron has no session cookie —
+// it authenticates itself with CRON_SECRET inside the route handler instead.
+const PUBLIC_PATHS = ["/login", "/api/auth", "/api/cron"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

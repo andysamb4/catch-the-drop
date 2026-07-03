@@ -33,7 +33,8 @@ model PriceBar {
   high   Float
   low    Float
   close  Float
-  volume BigInt
+  // Nullable: bars come from Finnhub's free /quote endpoint (no candle access), which doesn't report volume.
+  volume BigInt?
 
   watchlistItem WatchlistItem @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
 
