@@ -1,12 +1,9 @@
-import { BarChart3 } from "lucide-react";
-import { ComingSoon } from "@/components/layout/coming-soon";
+import { getAllTrades } from "@/lib/trade-dto";
+import { PerformanceDashboard } from "@/components/performance/performance-dashboard";
 
-export default function PerformancePage() {
-  return (
-    <ComingSoon
-      icon={BarChart3}
-      title="Performance dashboard coming in Phase 4"
-      description="Win rate, equity curve, monthly P/L, and streak-length breakdowns land here."
-    />
-  );
+export const dynamic = "force-dynamic";
+
+export default async function PerformancePage() {
+  const trades = await getAllTrades();
+  return <PerformanceDashboard trades={trades} />;
 }

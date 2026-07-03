@@ -1,12 +1,14 @@
-import { Receipt } from "lucide-react";
-import { ComingSoon } from "@/components/layout/coming-soon";
+import { prisma } from "@/lib/db";
+import { getAllTrades } from "@/lib/trade-dto";
+import { TradesTable } from "@/components/trades/trades-table";
 
-export default function TradesPage() {
-  return (
-    <ComingSoon
-      icon={Receipt}
-      title="Trade log coming in Phase 4"
-      description="Log entries and exits from your eToro trades and track realized P/L here."
-    />
-  );
+export const dynamic = "force-dynamic";
+
+export default async function TradesPage() {
+  const [trades, watchlist] = await Promise.all([
+    getAllTrades(),
+    prisma.watchlistItem.findMany({ orderBy: { symbol: "asc" }, select: { symbol: true, name: true } }),
+  ]);
+
+  return <TradesTable initialTrades={trades} watchlist={watchlist} />;
 }
