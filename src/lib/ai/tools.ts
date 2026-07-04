@@ -3,54 +3,42 @@ import type { ToolDefinition } from "@/lib/ai/client";
 
 export const AI_TOOLS: ToolDefinition[] = [
   {
-    type: "function",
-    function: {
-      name: "get_watchlist",
-      description: "Get the current stock watchlist: symbol, name, sector, and yo-yo score.",
-      parameters: { type: "object", properties: {}, required: [] },
+    name: "get_watchlist",
+    description: "Get the current stock watchlist: symbol, name, sector, and yo-yo score.",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "get_signals",
+    description: "Get recent 3-day BUY (drop) / SHORT (climb) signals, optionally filtered by ticker.",
+    input_schema: {
+      type: "object",
+      properties: {
+        symbol: { type: "string", description: "Optional ticker to filter by" },
+        limit: { type: "number", description: "Max results, default 20" },
+      },
+      required: [],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "get_signals",
-      description: "Get recent 3-day BUY (drop) / SHORT (climb) signals, optionally filtered by ticker.",
-      parameters: {
-        type: "object",
-        properties: {
-          symbol: { type: "string", description: "Optional ticker to filter by" },
-          limit: { type: "number", description: "Max results, default 20" },
-        },
-        required: [],
+    name: "get_trades",
+    description: "Get logged trades, optionally filtered by status (OPEN/CLOSED) or ticker.",
+    input_schema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["OPEN", "CLOSED"] },
+        symbol: { type: "string" },
       },
+      required: [],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "get_trades",
-      description: "Get logged trades, optionally filtered by status (OPEN/CLOSED) or ticker.",
-      parameters: {
-        type: "object",
-        properties: {
-          status: { type: "string", enum: ["OPEN", "CLOSED"] },
-          symbol: { type: "string" },
-        },
-        required: [],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_price_history",
-      description:
-        "Get the app's accumulated daily closing prices for a ticker (only as far back as the nightly cron has been running — not a full historical record).",
-      parameters: {
-        type: "object",
-        properties: { symbol: { type: "string" } },
-        required: ["symbol"],
-      },
+    name: "get_price_history",
+    description:
+      "Get the app's accumulated daily closing prices for a ticker (only as far back as the nightly cron has been running — not a full historical record).",
+    input_schema: {
+      type: "object",
+      properties: { symbol: { type: "string" } },
+      required: ["symbol"],
     },
   },
 ];

@@ -34,11 +34,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const reply = await runAgentLoop({
-      messages: [
-        { role: "system", content: CHAT_SYSTEM_PROMPT },
-        ...history,
-        { role: "user", content: userMessage },
-      ],
+      messages: [...history, { role: "user", content: userMessage }],
+      system: CHAT_SYSTEM_PROMPT,
       tools: AI_TOOLS,
       executeTool: executeAiTool,
     });
