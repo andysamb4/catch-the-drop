@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LogoutButton } from "@/components/settings/logout-button";
+import { SettingsForm } from "@/components/settings/settings-form";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -31,27 +32,20 @@ export default async function SettingsPage() {
         <CardHeader>
           <CardTitle className="text-base">Strategy settings</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center justify-between text-sm">
-            <span>Position size per signal</span>
-            <span className="text-muted-foreground">${settings?.positionSizeUsd ?? 500}</span>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span>Max open positions</span>
-            <span className="text-muted-foreground">{settings?.maxOpenPositions ?? 5}</span>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span>Min signal move to fire</span>
-            <span className="text-muted-foreground">{settings?.minSignalMovePct ?? 3}%</span>
-          </div>
-          <div className="flex items-center justify-between text-sm">
+        <CardContent className="space-y-4">
+          <SettingsForm
+            positionSizeUsd={settings?.positionSizeUsd ?? 500}
+            maxOpenPositions={settings?.maxOpenPositions ?? 5}
+            minSignalMovePct={settings?.minSignalMovePct ?? 3.0}
+          />
+          <div className="flex items-center justify-between border-t border-border pt-3 text-sm">
             <span>kie.ai model</span>
             <span className={modelConfigured ? "text-primary" : "text-muted-foreground"}>
               {modelConfigured ? "Configured" : "Not set"}
             </span>
           </div>
-          <p className="pt-1 text-xs text-muted-foreground">
-            Editing these in-app is coming soon — for now they&apos;re set via defaults in the database.
+          <p className="text-xs text-muted-foreground">
+            The kie.ai model is set via the KIE_MODEL environment variable, not stored here.
           </p>
         </CardContent>
       </Card>
