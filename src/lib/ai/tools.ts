@@ -5,12 +5,12 @@ export const AI_TOOLS: ToolDefinition[] = [
   {
     name: "get_watchlist",
     description: "Get the current stock watchlist: symbol, name, sector, and yo-yo score.",
-    input_schema: { type: "object", properties: {}, required: [] },
+    parameters: { type: "object", properties: {}, required: [] },
   },
   {
     name: "get_signals",
     description: "Get recent 3-day BUY (drop) / SHORT (climb) signals, optionally filtered by ticker.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         symbol: { type: "string", description: "Optional ticker to filter by" },
@@ -22,7 +22,7 @@ export const AI_TOOLS: ToolDefinition[] = [
   {
     name: "get_trades",
     description: "Get logged trades, optionally filtered by status (OPEN/CLOSED) or ticker.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         status: { type: "string", enum: ["OPEN", "CLOSED"] },
@@ -35,7 +35,7 @@ export const AI_TOOLS: ToolDefinition[] = [
     name: "get_price_history",
     description:
       "Get the app's accumulated daily closing prices for a ticker (only as far back as the nightly cron has been running — not a full historical record).",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: { symbol: { type: "string" } },
       required: ["symbol"],

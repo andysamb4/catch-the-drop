@@ -30,8 +30,6 @@ export async function POST(request: NextRequest) {
     content: m.content,
   }));
 
-  await prisma.chatMessage.create({ data: { role: "user", content: userMessage } });
-
   try {
     const reply = await runAgentLoop({
       messages: [...history, { role: "user", content: userMessage }],
@@ -40,6 +38,10 @@ export async function POST(request: NextRequest) {
       executeTool: executeAiTool,
     });
 
+    // Persist both turns together, only on success — a failed call shouldn't leave an
+    // unanswered question sitting in history for the next turn to trip over. Sequential
+    // (not createMany) so createdAt strictly orders user before assistant.
+    await prisma.chatMessage.create({ data: { role: "user", content: userMessage } });
     await prisma.chatMessage.create({ data: { role: "assistant", content: reply } });
     return NextResponse.json({ reply });
   } catch (err) {
