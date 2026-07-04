@@ -14,6 +14,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { WatchlistItemDTO } from "@/lib/watchlist-dto";
 
 type Props = {
@@ -24,7 +31,7 @@ type Props = {
   onSaved: () => void | Promise<void>;
 };
 
-const EMPTY_FORM = { symbol: "", name: "", sector: "", notes: "" };
+const EMPTY_FORM = { symbol: "", name: "", sector: "", notes: "", strategyFit: "AUTO" };
 
 export function TickerFormDialog({ mode, item, open, onOpenChange, onSaved }: Props) {
   const [form, setForm] = useState(EMPTY_FORM);
@@ -33,7 +40,13 @@ export function TickerFormDialog({ mode, item, open, onOpenChange, onSaved }: Pr
   useEffect(() => {
     if (!open) return;
     if (mode === "edit" && item) {
-      setForm({ symbol: item.symbol, name: item.name, sector: item.sector ?? "", notes: item.notes ?? "" });
+      setForm({
+        symbol: item.symbol,
+        name: item.name,
+        sector: item.sector ?? "",
+        notes: item.notes ?? "",
+        strategyFit: item.strategyFitManual && item.strategyFit ? item.strategyFit : "AUTO",
+      });
     } else {
       setForm(EMPTY_FORM);
     }
@@ -47,8 +60,8 @@ export function TickerFormDialog({ mode, item, open, onOpenChange, onSaved }: Pr
       const method = mode === "add" ? "POST" : "PATCH";
       const body =
         mode === "add"
-          ? form
-          : { name: form.name, sector: form.sector, notes: form.notes };
+          ? { symbol: form.symbol, name: form.name, sector: form.sector, notes: form.notes }
+          : { name: form.name, sector: form.sector, notes: form.notes, strategyFit: form.strategyFit };
 
       const res = await fetch(url, {
         method,
@@ -123,6 +136,29 @@ export function TickerFormDialog({ mode, item, open, onOpenChange, onSaved }: Pr
               onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
             />
           </div>
+          {mode === "edit" && (
+            <div className="space-y-2">
+              <Label htmlFor="strategyFit">Strategy fit</Label>
+              <Select
+                value={form.strategyFit}
+                onValueChange={(value) => setForm((f) => ({ ...f, strategyFit: value ?? "AUTO" }))}
+              >
+                <SelectTrigger id="strategyFit">
+                  <SelectValue placeholder="Auto (from yo-yo score)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="AUTO">Auto (from yo-yo score)</SelectItem>
+                  <SelectItem value="GOOD">Good</SelectItem>
+                  <SelectItem value="MODERATE">Moderate</SelectItem>
+                  <SelectItem value="POOR">Poor</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Auto derives fit from the nightly yo-yo score. Override if you know this ticker
+                trends rather than ranges.
+              </p>
+            </div>
+          )}
           <DialogFooter>
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? "Saving..." : mode === "add" ? "Add ticker" : "Save changes"}

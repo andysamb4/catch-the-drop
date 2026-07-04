@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { SignalCard } from "@/components/signals/signal-card";
 import { ComingSoon } from "@/components/layout/coming-soon";
 import { Badge } from "@/components/ui/badge";
+import { PriceGapBanner } from "@/components/notifications/price-gap-banner";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ export default async function HomePage() {
 
   return (
     <div className="space-y-4">
+      <PriceGapBanner />
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           Fresh signals from the last nightly scan.

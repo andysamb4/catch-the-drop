@@ -1,4 +1,4 @@
-import type { WatchlistItem } from "@/generated/prisma/client";
+import type { StrategyFit, WatchlistItem } from "@/generated/prisma/client";
 
 // Client components always see dates as ISO strings (matches what fetch()+JSON returns),
 // so the server page serializes its initial Prisma results the same way.
@@ -11,6 +11,8 @@ export type WatchlistItemDTO = {
   active: boolean;
   yoyoScore: number | null;
   yoyoScoreAt: string | null;
+  strategyFit: StrategyFit | null;
+  strategyFitManual: boolean;
   addedAt: string;
 };
 
@@ -24,6 +26,8 @@ export function toWatchlistItemDTO(item: WatchlistItem): WatchlistItemDTO {
     active: item.active,
     yoyoScore: item.yoyoScore,
     yoyoScoreAt: item.yoyoScoreAt ? item.yoyoScoreAt.toISOString() : null,
+    strategyFit: item.strategyFit,
+    strategyFitManual: item.strategyFitManual,
     addedAt: item.addedAt.toISOString(),
   };
 }

@@ -140,6 +140,11 @@ export function SignalsTable({ signals }: { signals: SignalDTO[] }) {
                       <Badge variant={s.type === "BUY" ? "default" : "destructive"}>
                         {s.type}
                       </Badge>
+                      {s.strategyFit === "POOR" && (
+                        <Badge variant="outline" className="text-muted-foreground">
+                          Poor fit
+                        </Badge>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">

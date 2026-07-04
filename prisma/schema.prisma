@@ -7,16 +7,24 @@ datasource db {
   provider = "postgresql"
 }
 
+enum StrategyFit {
+  GOOD
+  MODERATE
+  POOR
+}
+
 model WatchlistItem {
-  id          String    @id @default(cuid())
-  symbol      String    @unique
-  name        String
-  sector      String?
-  notes       String?
-  active      Boolean   @default(true)
-  yoyoScore   Float?
-  yoyoScoreAt DateTime?
-  addedAt     DateTime  @default(now())
+  id                String       @id @default(cuid())
+  symbol            String       @unique
+  name              String
+  sector            String?
+  notes             String?
+  active            Boolean      @default(true)
+  yoyoScore         Float?
+  yoyoScoreAt       DateTime?
+  strategyFit       StrategyFit?
+  strategyFitManual Boolean      @default(false)
+  addedAt           DateTime     @default(now())
 
   signals   Signal[]
   trades    Trade[]

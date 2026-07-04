@@ -42,12 +42,27 @@ import { LayoutList } from "lucide-react";
 import { TickerFormDialog } from "@/components/watchlist/ticker-form-dialog";
 import type { WatchlistItemDTO } from "@/lib/watchlist-dto";
 
-type SortKey = "symbol" | "sector" | "yoyoScore" | "addedAt";
+type SortKey = "symbol" | "sector" | "yoyoScore" | "strategyFit" | "addedAt";
+
+const STRATEGY_FIT_RANK: Record<string, number> = { GOOD: 3, MODERATE: 2, POOR: 1 };
+
+const STRATEGY_FIT_LABEL: Record<string, string> = {
+  GOOD: "Good",
+  MODERATE: "Moderate",
+  POOR: "Poor",
+};
+
+const STRATEGY_FIT_BADGE_VARIANT: Record<string, "default" | "outline" | "destructive"> = {
+  GOOD: "default",
+  MODERATE: "outline",
+  POOR: "destructive",
+};
 
 export function WatchlistTable({ initialItems }: { initialItems: WatchlistItemDTO[] }) {
   const [items, setItems] = useState(initialItems);
   const [search, setSearch] = useState("");
   const [sectorFilter, setSectorFilter] = useState("all");
+  const [fitFilter, setFitFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("addedAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [addOpen, setAddOpen] = useState(false);
@@ -83,7 +98,10 @@ export function WatchlistTable({ initialItems }: { initialItems: WatchlistItemDT
         item.name.toLowerCase().includes(q) ||
         (item.sector?.toLowerCase().includes(q) ?? false);
       const matchesSector = sectorFilter === "all" || item.sector === sectorFilter;
-      return matchesQuery && matchesSector;
+      const matchesFit =
+        fitFilter === "all" ||
+        (fitFilter === "UNKNOWN" ? !item.strategyFit : item.strategyFit === fitFilter);
+      return matchesQuery && matchesSector && matchesFit;
     });
 
     result = [...result].sort((a, b) => {
@@ -91,12 +109,14 @@ export function WatchlistTable({ initialItems }: { initialItems: WatchlistItemDT
       if (sortKey === "symbol") cmp = a.symbol.localeCompare(b.symbol);
       else if (sortKey === "sector") cmp = (a.sector ?? "").localeCompare(b.sector ?? "");
       else if (sortKey === "yoyoScore") cmp = (a.yoyoScore ?? -1) - (b.yoyoScore ?? -1);
+      else if (sortKey === "strategyFit")
+        cmp = (STRATEGY_FIT_RANK[a.strategyFit ?? ""] ?? 0) - (STRATEGY_FIT_RANK[b.strategyFit ?? ""] ?? 0);
       else if (sortKey === "addedAt") cmp = a.addedAt.localeCompare(b.addedAt);
       return sortDir === "asc" ? cmp : -cmp;
     });
 
     return result;
-  }, [items, search, sectorFilter, sortKey, sortDir]);
+  }, [items, search, sectorFilter, fitFilter, sortKey, sortDir]);
 
   async function handleRemoveConfirm() {
     if (!removeItem) return;
@@ -146,21 +166,35 @@ export function WatchlistTable({ initialItems }: { initialItems: WatchlistItemDT
         </Button>
       </div>
 
-      {sectors.length > 0 && (
-        <Select value={sectorFilter} onValueChange={(value) => setSectorFilter(value ?? "all")}>
+      <div className="flex gap-2">
+        {sectors.length > 0 && (
+          <Select value={sectorFilter} onValueChange={(value) => setSectorFilter(value ?? "all")}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="All sectors" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All sectors</SelectItem>
+              {sectors.map((sector) => (
+                <SelectItem key={sector} value={sector}>
+                  {sector}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <Select value={fitFilter} onValueChange={(value) => setFitFilter(value ?? "all")}>
           <SelectTrigger className="w-full">
-            <SelectValue placeholder="All sectors" />
+            <SelectValue placeholder="All fits" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All sectors</SelectItem>
-            {sectors.map((sector) => (
-              <SelectItem key={sector} value={sector}>
-                {sector}
-              </SelectItem>
-            ))}
+            <SelectItem value="all">All fits</SelectItem>
+            <SelectItem value="GOOD">Good</SelectItem>
+            <SelectItem value="MODERATE">Moderate</SelectItem>
+            <SelectItem value="POOR">Poor</SelectItem>
+            <SelectItem value="UNKNOWN">Unknown</SelectItem>
           </SelectContent>
         </Select>
-      )}
+      </div>
 
       {items.length === 0 ? (
         <ComingSoon
@@ -182,6 +216,9 @@ export function WatchlistTable({ initialItems }: { initialItems: WatchlistItemDT
                 <TableHead className="text-right">
                   <SortHeader label="Yo-Yo" sortKeyValue="yoyoScore" />
                 </TableHead>
+                <TableHead className="text-right">
+                  <SortHeader label="Fit" sortKeyValue="strategyFit" />
+                </TableHead>
                 <TableHead className="w-8" />
               </TableRow>
             </TableHeader>
@@ -190,7 +227,7 @@ export function WatchlistTable({ initialItems }: { initialItems: WatchlistItemDT
                 <TableRow key={item.id}>
                   <TableCell>
                     <div className="font-semibold">{item.symbol}</div>
-                    <div className="max-w-[10rem] truncate text-xs text-muted-foreground">
+                    <div className="max-w-40 truncate text-xs text-muted-foreground">
                       {item.name}
                     </div>
                     {item.sector && (
@@ -204,6 +241,15 @@ export function WatchlistTable({ initialItems }: { initialItems: WatchlistItemDT
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     {item.yoyoScore ?? "—"}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {item.strategyFit ? (
+                      <Badge variant={STRATEGY_FIT_BADGE_VARIANT[item.strategyFit]}>
+                        {STRATEGY_FIT_LABEL[item.strategyFit]}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>

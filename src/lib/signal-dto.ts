@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import type { Signal, WatchlistItem } from "@/generated/prisma/client";
+import type { Signal, StrategyFit, WatchlistItem } from "@/generated/prisma/client";
 
 export type SignalDTO = {
   id: string;
@@ -13,6 +13,7 @@ export type SignalDTO = {
   createdAt: string;
   priceAtSignal: number | null;
   suggestedShares: number | null;
+  strategyFit: StrategyFit | null;
 };
 
 type SignalWithTicker = Signal & { watchlistItem: WatchlistItem };
@@ -45,6 +46,7 @@ async function withSizing(signals: SignalWithTicker[]): Promise<SignalDTO[]> {
       createdAt: s.createdAt.toISOString(),
       priceAtSignal: price,
       suggestedShares: price ? Math.floor(positionSizeUsd / price) : null,
+      strategyFit: s.watchlistItem.strategyFit,
     };
   });
 }

@@ -1,4 +1,4 @@
-import { Sparkles, TrendingDown, TrendingUp } from "lucide-react";
+import { Sparkles, TrendingDown, TrendingUp, TriangleAlert } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { SignalDTO } from "@/lib/signal-dto";
@@ -6,9 +6,10 @@ import type { SignalDTO } from "@/lib/signal-dto";
 export function SignalCard({ signal }: { signal: SignalDTO }) {
   const isBuy = signal.type === "BUY";
   const Icon = isBuy ? TrendingDown : TrendingUp;
+  const isPoorFit = signal.strategyFit === "POOR";
 
   return (
-    <Card className="rounded-2xl">
+    <Card className={"rounded-2xl" + (isPoorFit ? " opacity-70" : "")}>
       <CardContent className="flex items-start gap-3 py-4">
         <div
           className={
@@ -24,6 +25,12 @@ export function SignalCard({ signal }: { signal: SignalDTO }) {
               <div className="flex items-center gap-2">
                 <span className="font-semibold">{signal.symbol}</span>
                 <Badge variant={isBuy ? "default" : "destructive"}>{signal.type}</Badge>
+                {isPoorFit && (
+                  <Badge variant="outline" className="gap-1 text-muted-foreground">
+                    <TriangleAlert className="h-3 w-3" />
+                    Poor fit
+                  </Badge>
+                )}
               </div>
               <p className="truncate text-xs text-muted-foreground">{signal.name}</p>
             </div>

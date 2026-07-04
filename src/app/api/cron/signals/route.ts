@@ -4,6 +4,9 @@ import { getQuote } from "@/lib/finnhub";
 import { detectStreakSignal } from "@/lib/signals";
 import { computeYoyoScore } from "@/lib/yoyo-score";
 import { utcDateOnly } from "@/lib/date";
+import { findMissingTradingDays } from "@/lib/price-gaps";
+import { recordPriceGap } from "@/lib/notifications";
+import { deriveStrategyFit } from "@/lib/strategy-fit";
 
 export const maxDuration = 60;
 
@@ -52,6 +55,13 @@ export async function GET(request: NextRequest) {
       });
       const barsAsc = [...recentBars].reverse();
 
+      const gaps = findMissingTradingDays(barsAsc);
+      if (gaps.length > 0) {
+        await recordPriceGap(ticker.symbol, gaps);
+        results.push({ symbol: ticker.symbol, status: "data_gap" });
+        continue;
+      }
+
       const signal = detectStreakSignal(barsAsc, minSignalMovePct);
       if (signal) {
         await prisma.signal.upsert({
@@ -70,7 +80,15 @@ export async function GET(request: NextRequest) {
       const yoyoScore = computeYoyoScore(barsAsc.map((b) => b.close));
       await prisma.watchlistItem.update({
         where: { symbol: ticker.symbol },
-        data: { yoyoScore, yoyoScoreAt: new Date() },
+        data: {
+          yoyoScore,
+          yoyoScoreAt: new Date(),
+          // A manual override in the watchlist edit form sticks until cleared —
+          // don't let the nightly recompute silently overwrite it.
+          ...(ticker.strategyFitManual
+            ? {}
+            : { strategyFit: deriveStrategyFit(yoyoScore, barsAsc.length) }),
+        },
       });
 
       results.push({ symbol: ticker.symbol, status: "ok", signal: signal?.type });
