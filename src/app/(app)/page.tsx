@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Zap } from "lucide-react";
-import { getTodaysSignals } from "@/lib/signal-dto";
+import { getLatestSignals } from "@/lib/signal-dto";
 import { getOpenTradeCount } from "@/lib/trade-dto";
 import { prisma } from "@/lib/db";
 import { SignalCard } from "@/components/signals/signal-card";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const [signals, openCount, settings] = await Promise.all([
-    getTodaysSignals(),
+    getLatestSignals(),
     getOpenTradeCount(),
     prisma.settings.findUnique({ where: { id: 1 } }),
   ]);

@@ -1,12 +1,14 @@
-import { Sparkles } from "lucide-react";
-import { ComingSoon } from "@/components/layout/coming-soon";
+import { prisma } from "@/lib/db";
+import { YoYoHunterForm } from "@/components/yo-yo-hunter/yo-yo-hunter-form";
 
-export default function YoYoHunterPage() {
-  return (
-    <ComingSoon
-      icon={Sparkles}
-      title="Yo-Yo Hunter coming in Phase 5"
-      description="Pick a ticker and get an AI verdict on whether its oscillation pattern fits the strategy."
-    />
-  );
+export const dynamic = "force-dynamic";
+
+export default async function YoYoHunterPage() {
+  const watchlist = await prisma.watchlistItem.findMany({
+    where: { active: true },
+    orderBy: { symbol: "asc" },
+    select: { symbol: true },
+  });
+
+  return <YoYoHunterForm watchlistSymbols={watchlist.map((w) => w.symbol)} />;
 }

@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/db";
-import { utcDateOnly } from "@/lib/date";
 import type { Signal, WatchlistItem } from "@/generated/prisma/client";
 
 export type SignalDTO = {
@@ -10,6 +9,7 @@ export type SignalDTO = {
   type: "BUY" | "SHORT";
   streakLength: number;
   cumulativeMovePct: number;
+  aiCommentary: string | null;
   createdAt: string;
   priceAtSignal: number | null;
   suggestedShares: number | null;
@@ -41,6 +41,7 @@ async function withSizing(signals: SignalWithTicker[]): Promise<SignalDTO[]> {
       type: s.type,
       streakLength: s.streakLength,
       cumulativeMovePct: s.cumulativeMovePct,
+      aiCommentary: s.aiCommentary,
       createdAt: s.createdAt.toISOString(),
       priceAtSignal: price,
       suggestedShares: price ? Math.floor(positionSizeUsd / price) : null,
@@ -48,10 +49,15 @@ async function withSizing(signals: SignalWithTicker[]): Promise<SignalDTO[]> {
   });
 }
 
-export async function getTodaysSignals(): Promise<SignalDTO[]> {
-  const today = utcDateOnly();
+// "Today's" signals really means "the most recent scan's signals" — the nightly cron
+// runs late (21:05 UTC), so a literal calendar-date filter would show nothing all
+// morning until that evening's run, right when the morning brief most needs data.
+export async function getLatestSignals(): Promise<SignalDTO[]> {
+  const latest = await prisma.signal.findFirst({ orderBy: { date: "desc" } });
+  if (!latest) return [];
+
   const signals = await prisma.signal.findMany({
-    where: { date: today },
+    where: { date: latest.date },
     include: { watchlistItem: true },
     orderBy: { createdAt: "desc" },
   });

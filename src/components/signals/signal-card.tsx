@@ -1,4 +1,4 @@
-import { TrendingDown, TrendingUp } from "lucide-react";
+import { Sparkles, TrendingDown, TrendingUp } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { SignalDTO } from "@/lib/signal-dto";
@@ -42,6 +42,12 @@ export function SignalCard({ signal }: { signal: SignalDTO }) {
                 <> &middot; suggested {signal.suggestedShares} sh</>
               )}
             </p>
+          )}
+          {signal.aiCommentary && (
+            <div className="mt-3 flex gap-1.5 rounded-xl bg-accent/50 p-2.5">
+              <Sparkles className="h-3.5 w-3.5 shrink-0 translate-y-0.5 text-primary" />
+              <p className="text-xs text-foreground/80">{signal.aiCommentary}</p>
+            </div>
           )}
         </div>
       </CardContent>

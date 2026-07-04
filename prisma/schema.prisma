@@ -53,6 +53,7 @@ model Signal {
   type              SignalType
   streakLength      Int
   cumulativeMovePct Float
+  aiCommentary      String?
   createdAt         DateTime   @default(now())
 
   watchlistItem WatchlistItem @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
