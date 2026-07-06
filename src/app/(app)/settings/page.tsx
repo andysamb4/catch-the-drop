@@ -3,6 +3,7 @@ import { Sparkles } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LogoutButton } from "@/components/settings/logout-button";
 import { SettingsForm } from "@/components/settings/settings-form";
+import { CronTrigger } from "@/components/settings/cron-trigger";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +48,15 @@ export default async function SettingsPage() {
           <p className="text-xs text-muted-foreground">
             The kie.ai model is set via the KIE_MODEL environment variable, not stored here.
           </p>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle className="text-base">Cron jobs</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <CronTrigger />
         </CardContent>
       </Card>
 
