@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { SignalCard } from "@/components/signals/signal-card";
 import { ComingSoon } from "@/components/layout/coming-soon";
 import { PriceGapBanner } from "@/components/notifications/price-gap-banner";
+import { MarketAlertBanner } from "@/components/notifications/market-alert-banner";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ export default async function HomePage() {
 
   return (
     <div className="space-y-4">
+      <MarketAlertBanner />
       <PriceGapBanner />
 
       <div className="grid grid-cols-2 gap-2.5">

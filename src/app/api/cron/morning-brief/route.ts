@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateText, AIError } from "@/lib/ai/client";
 import { morningBriefPrompt } from "@/lib/ai/prompts";
+import { generateMarketAlert, formatMarketContext } from "@/lib/market-alert";
 
 export const maxDuration = 60;
 
@@ -11,9 +12,27 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Overnight macro check runs before (and regardless of) signal commentary:
+  // the home-page warning matters even on days with no fresh signals. A
+  // failure here must not take the whole brief down with it.
+  let marketAlertStatus: string;
+  let marketContext: string | undefined;
+  try {
+    const run = await generateMarketAlert();
+    marketAlertStatus = run.status;
+    if (run.alert) marketContext = formatMarketContext(run.alert);
+  } catch (err) {
+    marketAlertStatus = `error: ${err instanceof AIError ? err.message : (err as Error).message}`;
+  }
+
   const latest = await prisma.signal.findFirst({ orderBy: { date: "desc" } });
   if (!latest) {
-    return NextResponse.json({ ranAt: new Date().toISOString(), results: [], note: "No signals yet." });
+    return NextResponse.json({
+      ranAt: new Date().toISOString(),
+      marketAlert: marketAlertStatus,
+      results: [],
+      note: "No signals yet.",
+    });
   }
 
   const freshSignals = await prisma.signal.findMany({
@@ -32,6 +51,7 @@ export async function GET(request: NextRequest) {
           type: signal.type,
           streakLength: signal.streakLength,
           cumulativeMovePct: signal.cumulativeMovePct,
+          marketContext,
         })
       );
       await prisma.signal.update({ where: { id: signal.id }, data: { aiCommentary: commentary } });
@@ -42,5 +62,10 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ranAt: new Date().toISOString(), briefDate: latest.date, results });
+  return NextResponse.json({
+    ranAt: new Date().toISOString(),
+    briefDate: latest.date,
+    marketAlert: marketAlertStatus,
+    results,
+  });
 }

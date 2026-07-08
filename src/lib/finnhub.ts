@@ -11,6 +11,34 @@ export type FinnhubQuote = {
   t: number; // quote timestamp (unix seconds)
 };
 
+// /news?category=general is still on the free tier: ~100 recent market-wide
+// headlines aggregated across outlets (Reuters/Bloomberg-sourced included),
+// newest first. Feeds the morning-brief's major-event filter.
+export type FinnhubNewsItem = {
+  datetime: number; // unix seconds
+  headline: string;
+  source: string;
+  summary: string;
+};
+
+export async function getGeneralNews(): Promise<FinnhubNewsItem[]> {
+  const apiKey = process.env.FINNHUB_API_KEY;
+  if (!apiKey) throw new Error("FINNHUB_API_KEY is not set");
+
+  const res = await fetch(`${FINNHUB_BASE}/news?category=general&token=${apiKey}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) return [];
+
+  const data = (await res.json().catch(() => null)) as Partial<FinnhubNewsItem>[] | null;
+  if (!Array.isArray(data)) return [];
+
+  return data.filter(
+    (item): item is FinnhubNewsItem =>
+      typeof item?.headline === "string" && typeof item?.datetime === "number"
+  );
+}
+
 export async function getQuote(symbol: string): Promise<FinnhubQuote | null> {
   const apiKey = process.env.FINNHUB_API_KEY;
   if (!apiKey) throw new Error("FINNHUB_API_KEY is not set");

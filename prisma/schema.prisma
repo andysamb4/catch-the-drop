@@ -153,6 +153,22 @@ model ChatMessage {
   createdAt DateTime @default(now())
 }
 
+// Overnight macro warning, written by the morning-brief cron only when the LLM
+// judges the night's headlines to be market-moving (war, rate shock, credit
+// event, crash). Quiet days produce no row — presence of a recent row IS the
+// warning, so the UI never has to grade severity itself.
+model MarketAlert {
+  id           String   @id @default(cuid())
+  date         DateTime @unique @db.Date
+  headline     String
+  body         String
+  // VIX snapshot at generation time, for "how scared is the market actually"
+  // context next to the headline. Null if the Yahoo fetch failed.
+  vix          Float?
+  vixChangePct Float?
+  createdAt    DateTime @default(now())
+}
+
 model Notification {
   id        String   @id @default(cuid())
   type      String
