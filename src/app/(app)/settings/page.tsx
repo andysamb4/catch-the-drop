@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LogoutButton } from "@/components/settings/logout-button";
 import { SettingsForm } from "@/components/settings/settings-form";
 import { CronTrigger } from "@/components/settings/cron-trigger";
+import { EtoroSync } from "@/components/settings/etoro-sync";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function SettingsPage() {
   const settings = await prisma.settings.findUnique({ where: { id: 1 } });
   const modelConfigured = !!process.env.KIE_MODEL && !process.env.KIE_MODEL.startsWith("REPLACE_WITH_");
+  const etoroConfigured = !!process.env.ETORO_API_KEY && !!process.env.ETORO_USER_KEY;
 
   return (
     <div className="space-y-4">
@@ -57,6 +59,15 @@ export default async function SettingsPage() {
         </CardHeader>
         <CardContent>
           <CronTrigger />
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle className="text-base">eToro</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <EtoroSync configured={etoroConfigured} />
         </CardContent>
       </Card>
 

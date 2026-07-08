@@ -24,6 +24,9 @@ model WatchlistItem {
   yoyoScoreAt       DateTime?
   strategyFit       StrategyFit?
   strategyFitManual Boolean      @default(false)
+  // eToro numeric instrument ID; set by the eToro sync. When present, the signals
+  // cron pulls daily candles from eToro (full OHLCV + backfill) instead of Finnhub.
+  etoroInstrumentId Int?
   addedAt           DateTime     @default(now())
 
   signals   Signal[]
@@ -110,6 +113,34 @@ model Settings {
   minSignalMovePct Float    @default(3.0)
   kieModel         String   @default("")
   updatedAt        DateTime @updatedAt
+}
+
+// Mirror of the live eToro portfolio, replaced wholesale on each sync.
+// Kept separate from Trade so eToro holdings don't pollute signal performance stats.
+model EtoroPosition {
+  id            String   @id @default(cuid())
+  // eToro position IDs exceed int4, and BigInt doesn't survive Next.js serialization — store as text.
+  positionId    String   @unique
+  instrumentId  Int
+  symbol        String
+  name          String
+  isBuy         Boolean
+  leverage      Float
+  openRate      Float
+  units         Float
+  investedUsd   Float
+  currentRate   Float?
+  unrealizedPnl Float?
+  openedAt      DateTime
+  syncedAt      DateTime
+}
+
+// Single-row account summary from the last eToro sync.
+model EtoroAccount {
+  id            Int      @id @default(1)
+  credit        Float
+  unrealizedPnl Float
+  syncedAt      DateTime @updatedAt
 }
 
 model ChatMessage {
