@@ -27,6 +27,8 @@ export async function getGeneralNews(): Promise<FinnhubNewsItem[]> {
 
   const res = await fetch(`${FINNHUB_BASE}/news?category=general&token=${apiKey}`, {
     cache: "no-store",
+    // A hung upstream would otherwise burn the whole cron function budget.
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) return [];
 

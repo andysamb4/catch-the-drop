@@ -16,6 +16,8 @@ export async function getVixSnapshot(): Promise<VixSnapshot | null> {
   const res = await fetch(`${YAHOO_BASE}/%5EVIX?range=5d&interval=1d`, {
     headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
     cache: "no-store",
+    // A hung upstream would otherwise burn the whole cron function budget.
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) return null;
 

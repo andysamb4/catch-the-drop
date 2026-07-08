@@ -4,7 +4,9 @@ import { generateText, AIError } from "@/lib/ai/client";
 import { morningBriefPrompt } from "@/lib/ai/prompts";
 import { generateMarketAlert, formatMarketContext } from "@/lib/market-alert";
 
-export const maxDuration = 60;
+// One sequential LLM call per fresh signal plus the market-alert check: a busy
+// day (manual rescan → 8+ fresh signals) overruns 60s, so take the full budget.
+export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
