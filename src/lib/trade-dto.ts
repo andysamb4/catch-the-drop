@@ -66,3 +66,14 @@ export async function getAllTrades(): Promise<TradeDTO[]> {
 export async function getOpenTradeCount(): Promise<number> {
   return prisma.trade.count({ where: { status: "OPEN" } });
 }
+
+// "Today" is the UTC calendar date, matching how entry/exit dates are stored (@db.Date).
+export async function getTodaysRealizedPL(): Promise<number> {
+  const now = new Date();
+  const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const result = await prisma.trade.aggregate({
+    _sum: { realizedPL: true },
+    where: { status: "CLOSED", exitDate: todayUtc },
+  });
+  return result._sum.realizedPL ?? 0;
+}

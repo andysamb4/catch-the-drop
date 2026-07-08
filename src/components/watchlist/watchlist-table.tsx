@@ -75,6 +75,13 @@ export function WatchlistTable({ initialItems }: { initialItems: WatchlistItemDT
     [items]
   );
 
+  // Yo-yo score is an unbounded reversal count, so the meter shows each ticker
+  // relative to the highest score currently on the list.
+  const maxYoyoScore = useMemo(
+    () => Math.max(1, ...items.map((i) => i.yoyoScore ?? 0)),
+    [items]
+  );
+
   async function refresh() {
     const res = await fetch("/api/watchlist");
     if (res.ok) setItems(await res.json());
@@ -239,8 +246,20 @@ export function WatchlistTable({ initialItems }: { initialItems: WatchlistItemDT
                   <TableCell className="hidden sm:table-cell text-muted-foreground">
                     {item.sector ?? "—"}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {item.yoyoScore ?? "—"}
+                  <TableCell>
+                    {item.yoyoScore != null ? (
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="h-1.5 w-12 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-full rounded-full bg-primary"
+                            style={{ width: `${Math.round((item.yoyoScore / maxYoyoScore) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-sm font-medium tabular-nums">{item.yoyoScore}</span>
+                      </div>
+                    ) : (
+                      <div className="text-right text-muted-foreground">—</div>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     {item.strategyFit ? (
