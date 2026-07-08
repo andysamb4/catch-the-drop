@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Zap } from "lucide-react";
 import { getLatestSignals } from "@/lib/signal-dto";
 import { getOpenTradeCount, getTodaysRealizedPL } from "@/lib/trade-dto";
+import { getScanStatus, formatAgo } from "@/lib/scan-status";
 import { prisma } from "@/lib/db";
 import { cn } from "@/lib/utils";
 import { SignalCard } from "@/components/signals/signal-card";
@@ -11,11 +12,12 @@ import { PriceGapBanner } from "@/components/notifications/price-gap-banner";
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [signals, openCount, settings, todaysPL] = await Promise.all([
+  const [signals, openCount, settings, todaysPL, scan] = await Promise.all([
     getLatestSignals(),
     getOpenTradeCount(),
     prisma.settings.findUnique({ where: { id: 1 } }),
     getTodaysRealizedPL(),
+    getScanStatus(),
   ]);
   const maxOpenPositions = settings?.maxOpenPositions ?? 5;
   const atCap = openCount >= maxOpenPositions;
@@ -61,9 +63,23 @@ export default async function HomePage() {
         </div>
       </div>
 
-      <p className="text-sm text-muted-foreground">
-        Fresh signals from the last nightly scan.
-      </p>
+      {scan.lastScanAt ? (
+        <p className="text-sm text-muted-foreground">
+          Fresh signals from the last scan &middot; ran {formatAgo(scan.lastScanAt)}
+          {scan.scanned < scan.total ? (
+            <span className="font-medium text-destructive">
+              {" "}
+              &middot; only {scan.scanned}/{scan.total} tickers scanned
+            </span>
+          ) : (
+            <span> &middot; all {scan.total} tickers</span>
+          )}
+        </p>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Fresh signals from the last nightly scan.
+        </p>
+      )}
 
       {signals.length === 0 ? (
         <ComingSoon

@@ -27,6 +27,9 @@ model WatchlistItem {
   // eToro numeric instrument ID; set by the eToro sync. When present, the signals
   // cron pulls daily candles from eToro (full OHLCV + backfill) instead of Finnhub.
   etoroInstrumentId Int?
+  // Set on every scan attempt, even skips and errors. Home page compares this across
+  // tickers to surface scans that died partway (timeout, crash, interrupted run).
+  lastScannedAt     DateTime?
   addedAt           DateTime     @default(now())
 
   signals   Signal[]

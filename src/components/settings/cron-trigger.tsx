@@ -17,6 +17,11 @@ interface Response {
   results: JobResult[];
   note?: string;
   briefDate?: string;
+  // Signals job only
+  durationMs?: number;
+  total?: number;
+  signalCount?: number;
+  errorCount?: number;
 }
 
 export function CronTrigger() {
@@ -93,6 +98,20 @@ export function CronTrigger() {
           <div className="text-xs text-muted-foreground">
             Ran at: {new Date(result.data.ranAt).toLocaleString()}
           </div>
+          {result.data.total != null && (
+            <div className="text-xs text-muted-foreground">
+              Scanned {result.data.total} tickers in{" "}
+              {Math.round((result.data.durationMs ?? 0) / 1000)}s &middot;{" "}
+              {result.data.signalCount} signal{result.data.signalCount === 1 ? "" : "s"}
+              {(result.data.errorCount ?? 0) > 0 && (
+                <span className="font-medium text-destructive">
+                  {" "}
+                  &middot; {result.data.errorCount} error
+                  {result.data.errorCount === 1 ? "" : "s"}
+                </span>
+              )}
+            </div>
+          )}
           {result.data.note && (
             <div className="text-xs text-muted-foreground">{result.data.note}</div>
           )}
