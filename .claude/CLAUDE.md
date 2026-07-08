@@ -9,26 +9,23 @@ This is a **Vercel project** (`catch-the-drop`).
 ### Current Setup
 - Vercel project ID: `prj_awc5tRU9UjVslTF9QzCRkJWZXlcB`
 - Org ID: `team_cScPeEquv0n28TvVpJ8AmYmU`
-- No git remote configured (local repo only)
-- No GitHub Actions workflow
+- Git remote: `origin` → https://github.com/andysamb4/catch-the-drop.git
+- GitHub repo is connected to Vercel — pushing to `master` auto-deploys to production
 
-### Deploy Options
+### Deploy
 
-**Option 1: Use Vercel CLI (recommended)**
+**Preferred: commit and push to master**
+```bash
+git push origin master
+```
+Commit all working-tree changes before pushing — a git-triggered build deploys only
+what's committed, so uncommitted features that reached prod via CLI deploys would
+otherwise be rolled back.
+
+**Fallback: Vercel CLI** (deploys the working directory as-is, even uncommitted)
 ```bash
 vercel deploy --prod
 ```
-
-**Option 2: Push to GitHub + auto-deploy**
-1. Create a repo on GitHub
-2. Add remote: `git remote add origin <github-url>`
-3. Connect GitHub repo to Vercel in dashboard (Settings → Git Integration)
-4. Push to main branch — auto-deploys to production
-
-**Option 3: Use Vercel Dashboard**
-- Open https://vercel.com/dashboard
-- Find `catch-the-drop` project
-- Trigger deployment manually
 
 ### Cron Jobs
 Scheduled tasks are configured in `vercel.json`:

@@ -73,7 +73,11 @@ export default async function TradeDetailPage({
         </CardHeader>
         <CardContent className="space-y-2">
           <Row label="Price" value={`$${dto.entryPrice.toFixed(2)}`} />
-          <Row label="Quantity" value={dto.quantity} />
+          <Row label="Amount" value={`$${(dto.quantity * dto.entryPrice).toFixed(2)}`} />
+          <Row
+            label="Quantity"
+            value={dto.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+          />
           <Row label="Date" value={new Date(dto.entryDate).toLocaleDateString()} />
           {dto.signalStreakLength != null && (
             <Row label="Signal" value={`${dto.signalStreakLength}-day streak`} />

@@ -72,7 +72,11 @@ export function LogExitDialog({
         <DialogHeader>
           <DialogTitle>Log exit for {trade?.symbol}</DialogTitle>
           <DialogDescription>
-            Entered {trade ? `${trade.quantity} sh @ $${trade.entryPrice.toFixed(2)}` : ""} on{" "}
+            Entered{" "}
+            {trade
+              ? `$${(trade.quantity * trade.entryPrice).toFixed(2)} (${trade.quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })} sh) @ $${trade.entryPrice.toFixed(2)}`
+              : ""}{" "}
+            on{" "}
             {trade ? new Date(trade.entryDate).toLocaleDateString() : ""}.
           </DialogDescription>
         </DialogHeader>

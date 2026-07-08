@@ -37,7 +37,7 @@ const EMPTY_FORM = {
   symbol: "",
   direction: "LONG" as "LONG" | "SHORT",
   entryPrice: "",
-  quantity: "",
+  amount: "",
   entryDate: today(),
   signalId: "none",
   notes: "",
@@ -73,8 +73,16 @@ export function TradeFormDialog({
       .catch(() => setSignalOptions([]));
   }, [form.symbol]);
 
+  const entryPriceNum = Number(form.entryPrice);
+  const amountNum = Number(form.amount);
+  const derivedQuantity = entryPriceNum > 0 && amountNum > 0 ? amountNum / entryPriceNum : null;
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (derivedQuantity == null) {
+      toast.error("Enter a valid entry price and amount.");
+      return;
+    }
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/trades", {
@@ -84,7 +92,7 @@ export function TradeFormDialog({
           symbol: form.symbol,
           direction: form.direction,
           entryPrice: form.entryPrice,
-          quantity: form.quantity,
+          quantity: derivedQuantity,
           entryDate: form.entryDate,
           signalId: form.signalId === "none" ? null : form.signalId,
           notes: form.notes,
@@ -163,18 +171,24 @@ export function TradeFormDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="quantity">Quantity</Label>
+              <Label htmlFor="amount">Amount ($)</Label>
               <Input
-                id="quantity"
+                id="amount"
                 type="number"
-                step="0.0001"
+                step="0.01"
                 min="0"
                 required
-                value={form.quantity}
-                onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))}
+                value={form.amount}
+                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
               />
             </div>
           </div>
+
+          {derivedQuantity != null && (
+            <p className="text-xs text-muted-foreground">
+              &asymp; {derivedQuantity.toFixed(4)} shares at ${entryPriceNum.toFixed(2)}
+            </p>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="entryDate">Entry date</Label>
