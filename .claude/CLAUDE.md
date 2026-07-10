@@ -27,14 +27,21 @@ otherwise be rolled back.
 vercel deploy --prod
 ```
 
+After pushing, confirm a new deployment actually appeared (`vercel ls` or the
+dashboard) — on 2026-07-10 two pushes produced no deployment and the CLI
+fallback was needed. Note `vercel ls` may not list git-triggered deploys under
+the CLI login; the dashboard is authoritative.
+
+The account is on the **Hobby plan**: crons are limited to once per day, and a
+sub-daily schedule in `vercel.json` fails the entire deploy.
+
 ### Cron Jobs
 Scheduled tasks are configured in `vercel.json`:
 - `GET /api/cron/signals` — 9:05 PM UTC weekdays (streak detection + auto-trade order placement)
 - `GET /api/cron/morning-brief` — 12:15 PM UTC weekdays (AI commentary)
 - `GET /api/cron/trade-sync` — 8:45 PM UTC weekdays (fill/close reconciliation)
 
-Vercel **Hobby plan**: crons may run at most once per day — `*/30`-style
-schedules fail the whole deploy. Close detection therefore polls via: trade-sync
+Because Hobby crons are once-daily, close detection polls via: trade-sync
 (20:45), a reconcile at the start of the signals cron (21:05), and every
 /sandbox page load/refresh.
 
