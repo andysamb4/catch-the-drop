@@ -66,9 +66,9 @@ export type EtoroCandle = {
   volume: number;
 };
 
-async function etoroFetch<T>(path: string): Promise<T> {
+async function etoroFetch<T>(path: string, opts: { userKey?: string } = {}): Promise<T> {
   const apiKey = process.env.ETORO_API_KEY;
-  const userKey = process.env.ETORO_USER_KEY;
+  const userKey = opts.userKey ?? process.env.ETORO_USER_KEY;
   if (!apiKey || !userKey) {
     throw new Error("ETORO_API_KEY / ETORO_USER_KEY are not set");
   }
@@ -93,8 +93,23 @@ export async function getWatchlists(): Promise<EtoroWatchlist[]> {
   return data.watchlists ?? [];
 }
 
+// eToro keys are bound to one environment: the primary ETORO_USER_KEY is a
+// demo/trading key (candles and watchlists accept it, and the auto-trader
+// needs it), but it gets 403 on real-account endpoints. Reading the real
+// portfolio therefore authenticates with the separate read-only
+// ETORO_REAL_USER_KEY. Without it this throws, and only the Settings → eToro
+// portfolio sync is affected.
 export async function getRealPortfolio(): Promise<EtoroPortfolio> {
-  const data = await etoroFetch<{ clientPortfolio: EtoroPortfolio }>("/trading/info/real/pnl");
+  const realKey = process.env.ETORO_REAL_USER_KEY;
+  if (!realKey) {
+    throw new Error(
+      "ETORO_REAL_USER_KEY is not set — the real-portfolio sync needs a Real-environment read key " +
+        "(the primary ETORO_USER_KEY is demo-only)"
+    );
+  }
+  const data = await etoroFetch<{ clientPortfolio: EtoroPortfolio }>("/trading/info/real/pnl", {
+    userKey: realKey,
+  });
   return data.clientPortfolio;
 }
 

@@ -42,6 +42,14 @@ close-detection logic live in `src/lib/auto-trade.ts`. eToro closes positions
 server-side via the native `takeProfitRate` attached to each order — the app
 never runs a manual close loop, it only reconciles by polling.
 
+Two eToro key pairs (keys are bound to ONE environment each, demo or real):
+- `ETORO_API_KEY` — the short application key, shared by both pairs.
+- `ETORO_USER_KEY` — Demo + Write private key (set 2026-07-10): auto-trading,
+  sandbox, watchlists, candles. If real trading is ever enabled, this must be
+  swapped for a Real + Write key.
+- `ETORO_REAL_USER_KEY` — Real + Read private key, used ONLY by
+  `getRealPortfolio()` for the Performance-page portfolio sync.
+
 Env config (`src/lib/trading-config.ts`), all optional:
 - `ETORO_MODE` — `demo` (default) or `real`. Only the exact string `real` selects live trading.
 - `ETORO_ALLOW_REAL` — must ALSO be `true` for any real-money order; otherwise real-mode orders throw.
