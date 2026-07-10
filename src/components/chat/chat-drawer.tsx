@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, MessageCircle, Send, Sparkles } from "lucide-react";
+import { ChevronDown, MessageCircle, Send, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -32,6 +32,18 @@ export function ChatDrawer() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
+
+  async function handleClear() {
+    if (isSending) return;
+    // Optimistic: worst case a failed DELETE means old history reappears next open.
+    setMessages([]);
+    setError(null);
+    try {
+      await fetch("/api/chat", { method: "DELETE" });
+    } catch {
+      // non-fatal
+    }
+  }
 
   async function handleSend() {
     const text = input.trim();
@@ -80,15 +92,29 @@ export function ChatDrawer() {
                 <Sparkles className="h-4 w-4 text-primary" />
                 Assistant
               </SheetTitle>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Close chat"
-                className="h-9 w-9 rounded-full"
-                onClick={() => setOpen(false)}
-              >
-                <ChevronDown className="h-5 w-5" />
-              </Button>
+              <div className="flex items-center gap-1">
+                {messages.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Clear conversation"
+                    className="h-9 w-9 rounded-full text-muted-foreground"
+                    onClick={handleClear}
+                    disabled={isSending}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Close chat"
+                  className="h-9 w-9 rounded-full"
+                  onClick={() => setOpen(false)}
+                >
+                  <ChevronDown className="h-5 w-5" />
+                </Button>
+              </div>
             </div>
           </SheetHeader>
 

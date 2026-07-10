@@ -4,14 +4,22 @@ import { AIError, runAgentLoop, type AiChatMessage } from "@/lib/ai/client";
 import { AI_TOOLS, executeAiTool } from "@/lib/ai/tools";
 import { CHAT_SYSTEM_PROMPT } from "@/lib/ai/prompts";
 
-const HISTORY_LIMIT = 20;
+const HISTORY_LIMIT = 20; // turns sent to the LLM as conversation context
+const DISPLAY_LIMIT = 50; // turns the drawer renders
 
 export async function GET() {
+  // Latest N, returned oldest-first for rendering. (asc + take returned the
+  // oldest N ever stored, freezing the drawer on the first page of history.)
   const messages = await prisma.chatMessage.findMany({
-    orderBy: { createdAt: "asc" },
-    take: HISTORY_LIMIT,
+    orderBy: { createdAt: "desc" },
+    take: DISPLAY_LIMIT,
   });
-  return NextResponse.json(messages);
+  return NextResponse.json(messages.reverse());
+}
+
+export async function DELETE() {
+  await prisma.chatMessage.deleteMany();
+  return NextResponse.json({ cleared: true });
 }
 
 export async function POST(request: NextRequest) {
