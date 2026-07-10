@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MessageCircle, Send, Sparkles } from "lucide-react";
+import { ChevronDown, MessageCircle, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetHeader,
   SheetTitle,
@@ -73,12 +74,24 @@ export function ChatDrawer() {
       </Button>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="bottom" className="h-[85vh] rounded-t-3xl p-0">
+        <SheetContent side="bottom" className="h-[85vh] rounded-t-3xl p-0" showCloseButton={false}>
           <SheetHeader className="border-b border-border px-4 py-3">
-            <SheetTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="h-4 w-4 text-primary" />
-              Assistant
-            </SheetTitle>
+            <div className="flex items-center justify-between">
+              <SheetTitle className="flex items-center gap-2 text-base">
+                <Sparkles className="h-4 w-4 text-primary" />
+                Assistant
+              </SheetTitle>
+              <SheetClose asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Close chat"
+                  className="h-9 w-9 rounded-full"
+                >
+                  <ChevronDown className="h-5 w-5" />
+                </Button>
+              </SheetClose>
+            </div>
           </SheetHeader>
 
           <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
