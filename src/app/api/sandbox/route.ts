@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { reconcilePositions } from "@/lib/auto-trade";
+import { getBankrollState, reconcilePositions } from "@/lib/auto-trade";
 import { getInstrumentInfo } from "@/lib/etoro";
 import type { LivePortfolio } from "@/lib/etoro-execution";
 import {
+  BOT_BANKROLL_USD,
+  BOT_MAX_POSITIONS,
   STOP_LOSS_PCT,
   TAKE_PROFIT_PCT,
   TRADE_SIZE_USD,
@@ -29,7 +31,7 @@ export async function GET() {
     etoroError = (err as Error).message;
   }
 
-  const [botPositions, events, lastPoll] = await Promise.all([
+  const [botPositions, events, lastPoll, bankroll] = await Promise.all([
     prisma.botPosition.findMany({
       where: { mode: SANDBOX_MODE },
       orderBy: { openedAt: "desc" },
@@ -44,6 +46,7 @@ export async function GET() {
       where: { mode: SANDBOX_MODE, type: "POLL" },
       orderBy: { createdAt: "desc" },
     }),
+    BOT_BANKROLL_USD > 0 ? getBankrollState(SANDBOX_MODE) : Promise.resolve(null),
   ]);
 
   const botByPositionId = new Map(
@@ -136,8 +139,12 @@ export async function GET() {
       lastPollAt: lastPoll?.createdAt ?? null,
       etoroReachable: etoroError === null,
     },
+    // Null when bankroll sizing is disabled (fixed TRADE_SIZE_USD per trade).
+    bankroll,
     config: {
       tradeSizeUsd: TRADE_SIZE_USD,
+      bankrollUsd: BOT_BANKROLL_USD > 0 ? BOT_BANKROLL_USD : null,
+      maxPositions: BOT_MAX_POSITIONS,
       takeProfitPct: TAKE_PROFIT_PCT,
       stopLossPct: STOP_LOSS_PCT ?? null,
     },

@@ -66,7 +66,13 @@ Env config (`src/lib/trading-config.ts`), all optional:
 - `ETORO_MODE` — `demo` (default) or `real`. Only the exact string `real` selects live trading.
 - `ETORO_ALLOW_REAL` — must ALSO be `true` for any real-money order; otherwise real-mode orders throw.
 - `AUTO_TRADE` — set `false` to stop new orders (monitoring keeps running).
-- `TRADE_SIZE_USD` — default 100 ($ per trade, leverage 1).
+- `BOT_BANKROLL_USD` — default 5000. Bankroll sizing: each trade =
+  (bankroll + realized bot P&L) / BOT_MAX_POSITIONS, so wins compound into
+  larger trades and open positions lock their capital. Set 0 to revert to
+  fixed TRADE_SIZE_USD sizing.
+- `BOT_MAX_POSITIONS` — default 10 (concurrent bot position slots).
+- `MIN_TRADE_USD` — default 50 (skip signals rather than place dust orders).
+- `TRADE_SIZE_USD` — default 100; only used when `BOT_BANKROLL_USD=0`.
 - `TAKE_PROFIT_PCT` — default 0.025 (2.5% favourable move, server-side TP).
 - `STOP_LOSS_PCT` — unset = no stop-loss (disabled hook; set e.g. 0.05 to enable).
 - `SANDBOX_REFRESH_MS` — default 7200000 (sandbox page auto-refresh, 2 h).

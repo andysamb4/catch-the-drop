@@ -29,8 +29,24 @@ function envNumber(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-// Cash size of each bot trade, in USD.
+// Fixed cash size of each bot trade, in USD. Only used when bankroll sizing
+// is disabled (BOT_BANKROLL_USD=0).
 export const TRADE_SIZE_USD = envNumber("TRADE_SIZE_USD", 100);
+
+// Bankroll sizing (the default): the bot manages a virtual bankroll, splits it
+// across BOT_MAX_POSITIONS concurrent slots, and sizes each trade at
+// equity / slots where equity = bankroll + realized bot P&L. Wins therefore
+// compound into larger trades; open positions (including stuck bags) lock
+// their capital and shrink what's deployable. Set BOT_BANKROLL_USD=0 to fall
+// back to fixed TRADE_SIZE_USD sizing.
+export const BOT_BANKROLL_USD = process.env.BOT_BANKROLL_USD === "0"
+  ? 0
+  : envNumber("BOT_BANKROLL_USD", 5000);
+export const BOT_MAX_POSITIONS = envNumber("BOT_MAX_POSITIONS", 10);
+
+// Skip a signal rather than place a dust-sized order when the bankroll is
+// nearly fully deployed (eToro's own floor is $10/position).
+export const MIN_TRADE_USD = envNumber("MIN_TRADE_USD", 50);
 
 // Take-profit distance as a fraction of the entry price. Attached to every
 // order via eToro's native takeProfitRate so the close happens server-side.

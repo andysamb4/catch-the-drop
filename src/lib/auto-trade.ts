@@ -9,6 +9,9 @@ import {
   type LivePortfolio,
 } from "@/lib/etoro-execution";
 import {
+  BOT_BANKROLL_USD,
+  BOT_MAX_POSITIONS,
+  MIN_TRADE_USD,
   TRADE_SIZE_USD,
   isAutoTradeEnabled,
   stopLossRateFor,
@@ -43,7 +46,65 @@ export type SignalOrderOutcome = {
   detail: string;
 };
 
-// Places the $TRADE_SIZE_USD market order for a confirmed signal, with eToro's
+export type BankrollState = {
+  // Starting bankroll plus all realized bot P&L — the compounding base.
+  equity: number;
+  // Capital locked in PENDING/OPEN bot positions.
+  deployed: number;
+  available: number;
+  openSlots: number;
+  // What the next trade would be sized at (equity / BOT_MAX_POSITIONS,
+  // clamped to what's still available).
+  nextTradeUsd: number;
+};
+
+// Bankroll snapshot for `mode`. Realized-only compounding: equity grows with
+// booked wins but is NOT marked to market, so a losing open bag can't inflate
+// or deflate the sizing of other slots — it just keeps its capital locked.
+export async function getBankrollState(mode: EtoroMode): Promise<BankrollState> {
+  const [realized, locked] = await Promise.all([
+    prisma.botPosition.aggregate({
+      where: { mode, status: "CLOSED" },
+      _sum: { realizedPnl: true },
+    }),
+    prisma.botPosition.aggregate({
+      where: { mode, status: { in: ["PENDING", "OPEN"] } },
+      _sum: { requestedUsd: true },
+      _count: true,
+    }),
+  ]);
+
+  const equity = BOT_BANKROLL_USD + (realized._sum.realizedPnl ?? 0);
+  const deployed = locked._sum.requestedUsd ?? 0;
+  const available = Math.max(0, equity - deployed);
+  const openSlots = Math.max(0, BOT_MAX_POSITIONS - locked._count);
+  const slotSize = equity / BOT_MAX_POSITIONS;
+  const nextTradeUsd =
+    openSlots === 0 ? 0 : Math.floor(Math.min(slotSize, available) * 100) / 100;
+
+  return { equity, deployed, available, openSlots, nextTradeUsd };
+}
+
+// Size of the next trade, or a skip reason. Fixed TRADE_SIZE_USD when
+// bankroll sizing is disabled.
+async function nextTradeSize(
+  mode: EtoroMode
+): Promise<{ sizeUsd: number } | { skip: string }> {
+  if (BOT_BANKROLL_USD <= 0) return { sizeUsd: TRADE_SIZE_USD };
+
+  const bankroll = await getBankrollState(mode);
+  if (bankroll.openSlots === 0) {
+    return { skip: `all ${BOT_MAX_POSITIONS} bankroll slots in use` };
+  }
+  if (bankroll.nextTradeUsd < MIN_TRADE_USD) {
+    return {
+      skip: `bankroll nearly fully deployed ($${bankroll.available.toFixed(2)} of $${bankroll.equity.toFixed(2)} available)`,
+    };
+  }
+  return { sizeUsd: bankroll.nextTradeUsd };
+}
+
+// Places the bankroll-sized market order for a confirmed signal, with eToro's
 // native take-profit attached. Signals detected after the close queue on eToro
 // and fill at the next open; the trade-sync poll then records the actual entry.
 export async function executeSignalOrder(
@@ -76,6 +137,17 @@ export async function executeSignalOrder(
     return { symbol: input.symbol, outcome: "skipped", detail };
   }
 
+  // Sized per order, inside the sequential order pass: each placed order books
+  // its capital as a PENDING row, so the next signal sees the reduced bankroll.
+  const sizing = await nextTradeSize(mode);
+  if ("skip" in sizing) {
+    await logBotEvent(mode, "ORDER_SKIPPED", `${input.symbol} ${direction}: ${sizing.skip}`, {
+      symbol: input.symbol,
+    });
+    return { symbol: input.symbol, outcome: "skipped", detail: sizing.skip };
+  }
+  const sizeUsd = sizing.sizeUsd;
+
   const takeProfitRate = takeProfitRateFor(direction, input.lastClose);
   const stopLossRate = stopLossRateFor(direction, input.lastClose);
 
@@ -85,7 +157,7 @@ export async function executeSignalOrder(
       symbol: input.symbol,
       instrumentId: input.instrumentId,
       direction,
-      amountUsd: TRADE_SIZE_USD,
+      amountUsd: sizeUsd,
       takeProfitRate,
       stopLossRate,
     });
@@ -98,7 +170,7 @@ export async function executeSignalOrder(
         direction,
         status: "PENDING",
         orderId: String(order.orderId),
-        requestedUsd: TRADE_SIZE_USD,
+        requestedUsd: sizeUsd,
         takeProfitRate,
         stopLossRate,
         signalId: input.signalId,
@@ -115,7 +187,7 @@ export async function executeSignalOrder(
           instrumentId: input.instrumentId,
           direction,
           status: "FAILED",
-          requestedUsd: TRADE_SIZE_USD,
+          requestedUsd: sizeUsd,
           takeProfitRate,
           stopLossRate,
           signalId: input.signalId,

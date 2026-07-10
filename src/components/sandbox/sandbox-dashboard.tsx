@@ -70,7 +70,20 @@ type SandboxData = {
     lastPollAt: string | null;
     etoroReachable: boolean;
   };
-  config: { tradeSizeUsd: number; takeProfitPct: number; stopLossPct: number | null };
+  bankroll: {
+    equity: number;
+    deployed: number;
+    available: number;
+    openSlots: number;
+    nextTradeUsd: number;
+  } | null;
+  config: {
+    tradeSizeUsd: number;
+    bankrollUsd: number | null;
+    maxPositions: number;
+    takeProfitPct: number;
+    stopLossPct: number | null;
+  };
 };
 
 const usd = (n: number) =>
@@ -195,12 +208,46 @@ export function SandboxDashboard({ refreshMs }: { refreshMs: number }) {
               </span>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Last poll {time(data.status.lastPollAt)} · Last refresh {time(data.fetchedAt)} ·
-              ${data.config.tradeSizeUsd}/trade · TP {(data.config.takeProfitPct * 100).toFixed(1)}%
+              Last poll {time(data.status.lastPollAt)} · Last refresh {time(data.fetchedAt)} ·{" "}
+              {data.config.bankrollUsd != null
+                ? `$${data.config.bankrollUsd} bankroll / ${data.config.maxPositions} slots`
+                : `$${data.config.tradeSizeUsd}/trade`}{" "}
+              · TP {(data.config.takeProfitPct * 100).toFixed(1)}%
               {data.config.stopLossPct != null &&
                 ` · SL ${(data.config.stopLossPct * 100).toFixed(1)}%`}
             </p>
           </div>
+
+          {/* Bot bankroll — the compounding base, separate from the demo account's legacy holdings */}
+          {data.bankroll && (
+            <div className="rounded-2xl border border-amber-500/40 bg-card p-4">
+              <p className="text-xs text-muted-foreground">Bot bankroll (realized compounding)</p>
+              <div className="mt-2 grid grid-cols-4 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">Equity</p>
+                  <p className={`font-semibold tabular-nums ${pnlClass(
+                    data.config.bankrollUsd != null ? data.bankroll.equity - data.config.bankrollUsd : null
+                  )}`}>
+                    {usd(data.bankroll.equity)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Deployed</p>
+                  <p className="font-semibold tabular-nums">{usd(data.bankroll.deployed)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Available</p>
+                  <p className="font-semibold tabular-nums">{usd(data.bankroll.available)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Next trade</p>
+                  <p className="font-semibold tabular-nums">
+                    {data.bankroll.openSlots === 0 ? "slots full" : usd(data.bankroll.nextTradeUsd)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Virtual balance */}
           <div className="grid grid-cols-3 gap-3">
