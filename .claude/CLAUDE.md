@@ -31,7 +31,12 @@ vercel deploy --prod
 Scheduled tasks are configured in `vercel.json`:
 - `GET /api/cron/signals` — 9:05 PM UTC weekdays (streak detection + auto-trade order placement)
 - `GET /api/cron/morning-brief` — 12:15 PM UTC weekdays (AI commentary)
-- `GET /api/cron/trade-sync` — every 30 min, 13:00–21:30 UTC weekdays (fill/close reconciliation)
+- `GET /api/cron/trade-sync` — 8:45 PM UTC weekdays (fill/close reconciliation)
+
+Vercel **Hobby plan**: crons may run at most once per day — `*/30`-style
+schedules fail the whole deploy. Close detection therefore polls via: trade-sync
+(20:45), a reconcile at the start of the signals cron (21:05), and every
+/sandbox page load/refresh.
 
 To test manually, use the "Cron jobs" section in Settings → Run signals / Run morning brief / Run trade sync
 

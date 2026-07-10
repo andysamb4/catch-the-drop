@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/cron/trade-sync",
-      "schedule": "*/30 13-21 * * 1-5"
+      "schedule": "45 20 * * 1-5"
     }
   ]
 }

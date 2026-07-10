@@ -8,7 +8,11 @@ import { utcDateOnly } from "@/lib/date";
 import { findMissingTradingDays } from "@/lib/price-gaps";
 import { recordPriceGap } from "@/lib/notifications";
 import { deriveStrategyFit } from "@/lib/strategy-fit";
-import { executeSignalOrder, type SignalOrderOutcome } from "@/lib/auto-trade";
+import {
+  executeSignalOrder,
+  reconcilePositions,
+  type SignalOrderOutcome,
+} from "@/lib/auto-trade";
 import { getEtoroMode } from "@/lib/trading-config";
 import type { WatchlistItem } from "@/generated/prisma/client";
 
@@ -213,6 +217,14 @@ export async function GET(request: NextRequest) {
   // each executable signal. Sequential — a signal day yields a handful of
   // orders, and eToro's execution quota is far tighter than market-data's.
   const mode = getEtoroMode();
+  // Reconcile first so fills and server-side TP closes from the session are
+  // recorded before the one-position-per-symbol dedupe runs. Also matters for
+  // cadence: Vercel Hobby caps crons at once daily, so this run doubles as a
+  // second close-detection poll alongside trade-sync and sandbox refreshes.
+  let reconcileError: string | undefined;
+  await reconcilePositions(mode).catch((err) => {
+    reconcileError = (err as Error).message;
+  });
   const orders: SignalOrderOutcome[] = [];
   for (const r of results) {
     if (!r.tradeInput) continue;
@@ -234,6 +246,7 @@ export async function GET(request: NextRequest) {
     tradingMode: mode,
     ordersPlaced: orders.filter((o) => o.outcome === "placed").length,
     orders,
+    ...(reconcileError && { reconcileError }),
     // tradeInput was plumbing for the order pass, not reporting — drop it
     results: results.map((r) => ({ symbol: r.symbol, status: r.status, signal: r.signal })),
   });
