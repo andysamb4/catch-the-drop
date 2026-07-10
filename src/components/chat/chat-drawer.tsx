@@ -5,7 +5,6 @@ import { ChevronDown, MessageCircle, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
-  SheetClose,
   SheetContent,
   SheetHeader,
   SheetTitle,
@@ -81,16 +80,15 @@ export function ChatDrawer() {
                 <Sparkles className="h-4 w-4 text-primary" />
                 Assistant
               </SheetTitle>
-              <SheetClose asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Close chat"
-                  className="h-9 w-9 rounded-full"
-                >
-                  <ChevronDown className="h-5 w-5" />
-                </Button>
-              </SheetClose>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Close chat"
+                className="h-9 w-9 rounded-full"
+                onClick={() => setOpen(false)}
+              >
+                <ChevronDown className="h-5 w-5" />
+              </Button>
             </div>
           </SheetHeader>
 
