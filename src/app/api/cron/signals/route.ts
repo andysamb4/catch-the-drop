@@ -8,6 +8,8 @@ import { utcDateOnly } from "@/lib/date";
 import { findMissingTradingDays } from "@/lib/price-gaps";
 import { recordPriceGap } from "@/lib/notifications";
 import { deriveStrategyFit } from "@/lib/strategy-fit";
+import { executeSignalOrder, type SignalOrderOutcome } from "@/lib/auto-trade";
+import { getEtoroMode } from "@/lib/trading-config";
 import type { WatchlistItem } from "@/generated/prisma/client";
 
 export const maxDuration = 300;
@@ -21,7 +23,19 @@ const STALE_HISTORY_MS = 7 * 24 * 60 * 60 * 1000;
 // concurrency modest: 6 workers finish the list in well under a minute.
 const SCAN_CONCURRENCY = 6;
 
-type TickerResult = { symbol: string; status: string; signal?: string };
+type TickerResult = {
+  symbol: string;
+  status: string;
+  signal?: string;
+  // Set when a signal was stored and the ticker is auto-tradeable (has an
+  // eToro instrument ID) — consumed by the order-placement pass after the scan.
+  tradeInput?: {
+    signalId: string;
+    instrumentId: number;
+    type: "BUY" | "SHORT";
+    lastClose: number;
+  };
+};
 
 async function scanTicker(
   ticker: WatchlistItem,
@@ -109,8 +123,9 @@ async function scanTicker(
   }
 
   const signal = detectStreakSignal(detectionBars, minSignalMovePct);
+  let tradeInput: TickerResult["tradeInput"];
   if (signal) {
-    await prisma.signal.upsert({
+    const signalRow = await prisma.signal.upsert({
       where: { symbol_date_type: { symbol: ticker.symbol, date: today, type: signal.type } },
       // A manual daytime run may have stamped today's row from a partial intraday
       // candle; the close-based nightly run must overwrite those numbers.
@@ -126,6 +141,15 @@ async function scanTicker(
         cumulativeMovePct: signal.cumulativeMovePct,
       },
     });
+    // Only eToro-mapped tickers are executable; Finnhub-only tickers stay signal-only.
+    if (ticker.etoroInstrumentId) {
+      tradeInput = {
+        signalId: signalRow.id,
+        instrumentId: ticker.etoroInstrumentId,
+        type: signal.type,
+        lastClose: detectionBars[detectionBars.length - 1].close,
+      };
+    }
   }
 
   const yoyoScore = computeYoyoScore(detectionBars.map((b) => b.close));
@@ -142,7 +166,7 @@ async function scanTicker(
     },
   });
 
-  return { symbol: ticker.symbol, status: "ok", signal: signal?.type };
+  return { symbol: ticker.symbol, status: "ok", signal: signal?.type, tradeInput };
 }
 
 export async function GET(request: NextRequest) {
@@ -185,12 +209,32 @@ export async function GET(request: NextRequest) {
   const signalCount = results.filter((r) => r.signal).length;
   const errorCount = results.filter((r) => r.status.startsWith("error")).length;
 
+  // Auto-trade pass: place the $TRADE_SIZE_USD market order (TP attached) for
+  // each executable signal. Sequential — a signal day yields a handful of
+  // orders, and eToro's execution quota is far tighter than market-data's.
+  const mode = getEtoroMode();
+  const orders: SignalOrderOutcome[] = [];
+  for (const r of results) {
+    if (!r.tradeInput) continue;
+    try {
+      orders.push(
+        await executeSignalOrder(mode, { symbol: r.symbol, ...r.tradeInput })
+      );
+    } catch (err) {
+      orders.push({ symbol: r.symbol, outcome: "failed", detail: (err as Error).message });
+    }
+  }
+
   return NextResponse.json({
     ranAt: new Date().toISOString(),
     durationMs: Date.now() - startedAt,
     total: tickers.length,
     signalCount,
     errorCount,
-    results,
+    tradingMode: mode,
+    ordersPlaced: orders.filter((o) => o.outcome === "placed").length,
+    orders,
+    // tradeInput was plumbing for the order pass, not reporting — drop it
+    results: results.map((r) => ({ symbol: r.symbol, status: r.status, signal: r.signal })),
   });
 }

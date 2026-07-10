@@ -5,7 +5,7 @@ export const maxDuration = 300;
 export async function POST(request: NextRequest) {
   const { job } = await request.json();
 
-  if (!["signals", "morning-brief"].includes(job)) {
+  if (!["signals", "morning-brief", "trade-sync"].includes(job)) {
     return NextResponse.json({ error: "Invalid job" }, { status: 400 });
   }
 

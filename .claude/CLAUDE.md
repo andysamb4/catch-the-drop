@@ -29,10 +29,32 @@ vercel deploy --prod
 
 ### Cron Jobs
 Scheduled tasks are configured in `vercel.json`:
-- `GET /api/cron/signals` — 9:05 PM UTC weekdays (streak detection)
+- `GET /api/cron/signals` — 9:05 PM UTC weekdays (streak detection + auto-trade order placement)
 - `GET /api/cron/morning-brief` — 12:15 PM UTC weekdays (AI commentary)
+- `GET /api/cron/trade-sync` — every 30 min, 13:00–21:30 UTC weekdays (fill/close reconciliation)
 
-To test manually, use the "Cron jobs" section in Settings → Run signals / Run morning brief
+To test manually, use the "Cron jobs" section in Settings → Run signals / Run morning brief / Run trade sync
+
+## Auto-Trading (eToro)
+
+All order traffic goes through `src/lib/etoro-execution.ts`; signal→order and
+close-detection logic live in `src/lib/auto-trade.ts`. eToro closes positions
+server-side via the native `takeProfitRate` attached to each order — the app
+never runs a manual close loop, it only reconciles by polling.
+
+Env config (`src/lib/trading-config.ts`), all optional:
+- `ETORO_MODE` — `demo` (default) or `real`. Only the exact string `real` selects live trading.
+- `ETORO_ALLOW_REAL` — must ALSO be `true` for any real-money order; otherwise real-mode orders throw.
+- `AUTO_TRADE` — set `false` to stop new orders (monitoring keeps running).
+- `TRADE_SIZE_USD` — default 100 ($ per trade, leverage 1).
+- `TAKE_PROFIT_PCT` — default 0.025 (2.5% favourable move, server-side TP).
+- `STOP_LOSS_PCT` — unset = no stop-loss (disabled hook; set e.g. 0.05 to enable).
+- `SANDBOX_REFRESH_MS` — default 7200000 (sandbox page auto-refresh, 2 h).
+
+`/sandbox` page + `GET /api/sandbox` are hard-pinned to eToro's `/demo/`
+endpoints regardless of `ETORO_MODE` — they can never touch real-money data.
+Note: trading needs eToro keys with trade permission; the original keys were
+read-only (see memory: etoro-api-integration).
 
 ## Stack
 - **Framework**: Next.js

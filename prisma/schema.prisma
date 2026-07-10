@@ -72,6 +72,7 @@ model Signal {
 
   watchlistItem WatchlistItem @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
   trades        Trade[]
+  botPositions  BotPosition[]
 
   @@unique([symbol, date, type])
 }
@@ -107,6 +108,63 @@ model Trade {
   signal        Signal?       @relation(fields: [signalId], references: [id], onDelete: SetNull)
 
   @@index([status])
+}
+
+enum BotPositionStatus {
+  PENDING // order sent to eToro, fill not yet confirmed
+  OPEN    // position confirmed open on eToro
+  CLOSED  // no longer in eToro's open list; realized P&L recorded from trade history
+  FAILED  // order rejected, or never produced a position
+}
+
+// A position the auto-trader opened (or tried to) — one row per order attempt.
+// `mode` separates demo and real records so the sandbox page can stay demo-only.
+// eToro closes positions server-side via the take-profit attached to the order;
+// the trade-sync reconcile poll moves rows OPEN -> CLOSED when they leave the
+// open-positions list, pulling realized P&L from eToro's trade history.
+model BotPosition {
+  id             String            @id @default(cuid())
+  mode           String // "demo" | "real"
+  symbol         String
+  instrumentId   Int
+  direction      TradeDirection
+  status         BotPositionStatus @default(PENDING)
+  // eToro order/position IDs exceed int4 and BigInt doesn't survive Next.js
+  // serialization — stored as text, same as EtoroPosition.positionId.
+  orderId        String?
+  positionId     String?           @unique
+  requestedUsd   Float
+  entryPrice     Float? // actual fill rate reported by eToro
+  units          Float?
+  takeProfitRate Float? // attached at order time from the signal close, corrected to the fill price post-fill
+  stopLossRate   Float? // unused until STOP_LOSS_PCT is enabled
+  realizedPnl    Float?
+  closeRate      Float?
+  closeReason    String? // "take-profit" | "manual" | "unknown" — inferred, eToro history has no explicit reason field
+  error          String?
+  signalId       String?
+  openedAt       DateTime          @default(now())
+  filledAt       DateTime?
+  closedAt       DateTime?
+  updatedAt      DateTime          @updatedAt
+
+  signal Signal? @relation(fields: [signalId], references: [id], onDelete: SetNull)
+
+  @@index([mode, status])
+}
+
+// Append-only auto-trader log: signal decisions, every order request/response
+// (with raw eToro payloads), fills, closes, reconcile polls, and errors.
+model BotEvent {
+  id        String   @id @default(cuid())
+  mode      String // "demo" | "real"
+  type      String // SIGNAL | ORDER_PLACED | ORDER_REJECTED | ORDER_BLOCKED | ORDER_SKIPPED | ORDER_FILLED | POSITION_CLOSED | POLL | ERROR
+  symbol    String?
+  message   String
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  @@index([mode, createdAt])
 }
 
 model Settings {

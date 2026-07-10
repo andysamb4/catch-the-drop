@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 
-type JobType = "signals" | "morning-brief";
+type JobType = "signals" | "morning-brief" | "trade-sync";
 
 interface JobResult {
   symbol?: string;
@@ -22,6 +22,13 @@ interface Response {
   total?: number;
   signalCount?: number;
   errorCount?: number;
+  ordersPlaced?: number;
+  // Trade-sync job only
+  mode?: string;
+  open?: number;
+  pending?: number;
+  filled?: number;
+  closed?: number;
 }
 
 export function CronTrigger() {
@@ -78,6 +85,15 @@ export function CronTrigger() {
           {loading === "morning-brief" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Run morning brief
         </Button>
+        <Button
+          onClick={() => runJob("trade-sync")}
+          disabled={loading !== null}
+          variant="outline"
+          size="sm"
+        >
+          {loading === "trade-sync" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Run trade sync
+        </Button>
       </div>
 
       {error && (
@@ -92,7 +108,12 @@ export function CronTrigger() {
           <div className="flex items-center gap-2 text-green-600 dark:text-green-500">
             <CheckCircle2 className="h-4 w-4" />
             <span className="font-medium">
-              {result.job === "signals" ? "Signals" : "Morning brief"} completed
+              {result.job === "signals"
+                ? "Signals"
+                : result.job === "trade-sync"
+                  ? "Trade sync"
+                  : "Morning brief"}{" "}
+              completed
             </span>
           </div>
           <div className="text-xs text-muted-foreground">
@@ -110,6 +131,18 @@ export function CronTrigger() {
                   {result.data.errorCount === 1 ? "" : "s"}
                 </span>
               )}
+            </div>
+          )}
+          {result.job === "trade-sync" && result.data.mode != null && (
+            <div className="text-xs text-muted-foreground">
+              Mode {result.data.mode} &middot; {result.data.open ?? 0} open &middot;{" "}
+              {result.data.pending ?? 0} pending &middot; {result.data.filled ?? 0} filled &middot;{" "}
+              {result.data.closed ?? 0} closed
+            </div>
+          )}
+          {result.job === "signals" && (result.data.ordersPlaced ?? 0) > 0 && (
+            <div className="text-xs text-muted-foreground">
+              {result.data.ordersPlaced} order{result.data.ordersPlaced === 1 ? "" : "s"} placed
             </div>
           )}
           {result.data.note && (
