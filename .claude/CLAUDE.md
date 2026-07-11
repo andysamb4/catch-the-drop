@@ -14,23 +14,22 @@ This is a **Vercel project** (`catch-the-drop`).
 
 ### Deploy
 
-**Preferred: commit and push to master**
+**RULE: ALL changes ship via GitHub — commit and push to master. Never use
+`vercel deploy --prod` (decided 2026-07-11).** CLI deploys push the working
+directory as-is, so prod drifts from git and the next git-triggered build
+silently rolls back whatever wasn't committed.
+
 ```bash
 git push origin master
 ```
-Commit all working-tree changes before pushing — a git-triggered build deploys only
-what's committed, so uncommitted features that reached prod via CLI deploys would
-otherwise be rolled back.
 
-**Fallback: Vercel CLI** (deploys the working directory as-is, even uncommitted)
-```bash
-vercel deploy --prod
-```
-
-After pushing, confirm a new deployment actually appeared (`vercel ls` or the
-dashboard) — on 2026-07-10 two pushes produced no deployment and the CLI
-fallback was needed. Note `vercel ls` may not list git-triggered deploys under
-the CLI login; the dashboard is authoritative.
+After pushing, confirm a new deployment actually appeared (Vercel dashboard,
+or the Vercel MCP `list_deployments` tool) — on 2026-07-10 two pushes produced
+no deployment. If a push doesn't trigger a build, fix the GitHub↔Vercel
+connection or redeploy that commit from the dashboard — do NOT fall back to a
+CLI deploy of the working tree. Note `vercel ls` may not list git-triggered
+deploys under the CLI login and shows no timestamps; the dashboard is
+authoritative.
 
 The account is on the **Hobby plan**: crons are limited to once per day, and a
 sub-daily schedule in `vercel.json` fails the entire deploy.
