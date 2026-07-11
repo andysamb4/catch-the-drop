@@ -86,14 +86,22 @@ type SandboxData = {
   };
 };
 
+// Whole dollars only — cents overflow the stat cards on phone-width screens.
 const usd = (n: number) =>
-  n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+  n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
 const rate = (n: number | null | undefined) =>
-  n == null ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  n == null ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 const time = (iso: string | null | undefined) =>
-  iso ? new Date(iso).toLocaleString() : "—";
+  iso
+    ? new Date(iso).toLocaleString(undefined, {
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : "—";
 
 function pnlClass(pnl: number | null | undefined) {
   if (pnl == null) return "text-muted-foreground";
@@ -222,7 +230,7 @@ export function SandboxDashboard({ refreshMs }: { refreshMs: number }) {
           {data.bankroll && (
             <div className="rounded-2xl border border-amber-500/40 bg-card p-4">
               <p className="text-xs text-muted-foreground">Bot bankroll (realized compounding)</p>
-              <div className="mt-2 grid grid-cols-4 gap-3 text-sm">
+              <div className="mt-2 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                 <div>
                   <p className="text-xs text-muted-foreground">Equity</p>
                   <p className={`font-semibold tabular-nums ${pnlClass(
@@ -250,21 +258,23 @@ export function SandboxDashboard({ refreshMs }: { refreshMs: number }) {
           )}
 
           {/* Virtual balance */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-2xl border border-amber-500/40 bg-card p-4">
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            <div className="min-w-0 rounded-2xl border border-amber-500/40 bg-card p-3 sm:p-4">
               <p className="text-xs text-muted-foreground">Virtual equity</p>
-              <p className="mt-1 text-2xl font-semibold">{equity == null ? "—" : usd(equity)}</p>
+              <p className="mt-1 text-lg font-semibold tabular-nums sm:text-2xl">
+                {equity == null ? "—" : usd(equity)}
+              </p>
             </div>
-            <div className="rounded-2xl border border-amber-500/40 bg-card p-4">
+            <div className="min-w-0 rounded-2xl border border-amber-500/40 bg-card p-3 sm:p-4">
               <p className="text-xs text-muted-foreground">Cash</p>
-              <p className="mt-1 text-2xl font-semibold">
+              <p className="mt-1 text-lg font-semibold tabular-nums sm:text-2xl">
                 {data.account ? usd(data.account.cash) : "—"}
               </p>
             </div>
-            <div className="rounded-2xl border border-amber-500/40 bg-card p-4">
+            <div className="min-w-0 rounded-2xl border border-amber-500/40 bg-card p-3 sm:p-4">
               <p className="text-xs text-muted-foreground">Unrealized P&L</p>
               <p
-                className={`mt-1 text-2xl font-semibold ${pnlClass(data.account?.unrealizedPnl)}`}
+                className={`mt-1 text-lg font-semibold tabular-nums sm:text-2xl ${pnlClass(data.account?.unrealizedPnl)}`}
               >
                 {data.account ? usd(data.account.unrealizedPnl) : "—"}
               </p>
