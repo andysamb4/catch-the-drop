@@ -127,6 +127,25 @@ export async function getDailyCandles(
   return [...candles].reverse();
 }
 
+export type EtoroInstrumentListItem = {
+  instrumentID: number;
+  symbolFull: string;
+  instrumentDisplayName: string;
+  instrumentTypeID: number; // 5 = stock, 6 = ETF (see IMPORTABLE_ASSET_TYPES)
+};
+
+// The full eToro instrument catalogue (~15k rows). The public API has no
+// symbol->id lookup — passing ?symbols= is ignored — so resolving a seeded
+// ticker means fetching the whole list once and matching on symbolFull. Used by
+// the ETF-universe seeder to map symbols to tradeable instrument IDs (and to
+// drop anything eToro doesn't list).
+export async function getAllInstruments(): Promise<EtoroInstrumentListItem[]> {
+  const data = await etoroFetch<{ instrumentDisplayDatas: EtoroInstrumentListItem[] }>(
+    "/market-data/instruments"
+  );
+  return data.instrumentDisplayDatas ?? [];
+}
+
 // Maps eToro numeric instrument IDs to ticker symbol + display name.
 export async function getInstrumentInfo(
   instrumentIds: number[]

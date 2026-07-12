@@ -29,6 +29,13 @@ function envNumber(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+// Unset/empty => fallback; only the exact string "true"/"false" flips it.
+function envBool(name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (raw == null || raw === "") return fallback;
+  return raw === "true";
+}
+
 // Fixed cash size of each bot trade, in USD. Only used when bankroll sizing
 // is disabled (BOT_BANKROLL_USD=0).
 export const TRADE_SIZE_USD = envNumber("TRADE_SIZE_USD", 100);
@@ -60,6 +67,83 @@ export const STOP_LOSS_PCT: number | undefined = process.env.STOP_LOSS_PCT
 
 // Sandbox page auto-refresh interval (2 hours).
 export const SANDBOX_REFRESH_MS = envNumber("SANDBOX_REFRESH_MS", 7_200_000);
+
+// --- Strategy segregation -------------------------------------------------
+// "core" is the champion: the original single-stock streak bot, whose behaviour
+// must stay byte-for-byte unchanged. "etf-mr" is the challenger: the same streak
+// engine over a liquid ETF universe, gated by a long-SMA trend filter and run on
+// an isolated compounding bankroll so the two can be compared cleanly. Both run
+// on eToro demo — strategy is orthogonal to mode (demo/real), which is why it is
+// a separate field rather than an overload of mode.
+
+export type Strategy = "core" | "etf-mr";
+export const CORE_STRATEGY: Strategy = "core";
+export const ETF_MR_STRATEGY: Strategy = "etf-mr";
+// Order matters for reporting: champion first, then challenger.
+export const KNOWN_STRATEGIES: readonly Strategy[] = [CORE_STRATEGY, ETF_MR_STRATEGY];
+
+export type StrategyConfig = {
+  strategy: Strategy;
+  label: string;
+  // Compounding bankroll base in USD. 0 => fixed TRADE_SIZE_USD sizing.
+  bankrollUsd: number;
+  maxPositions: number;
+  // Daily bars to fetch for detection. The trend filter needs a long lookback,
+  // so etf-mr pulls far more history than core's 90.
+  historyWindowDays: number;
+  // Long-SMA trend gate: BUY only when price is above its SMA, SHORT only when
+  // below. Keeps the challenger buying dips inside uptrends, not falling knives.
+  trendFilter: boolean;
+  smaPeriod: number;
+  // Don't apply the trend gate with fewer than this many bars — fall back is to
+  // treat the ticker as having insufficient history and emit no signal.
+  minTrendBars: number;
+  // Record SHORT signals for observation but never place SHORT orders. The short
+  // side of mean reversion is the dangerous half, so the challenger starts long-only.
+  longsOnly: boolean;
+};
+
+// etf-mr challenger knobs — all optional env with safe defaults. Its bankroll is
+// independent of core's BOT_BANKROLL_USD so the experiment never draws from the
+// champion's capital.
+const ETF_MR_BANKROLL_USD =
+  process.env.ETF_MR_BANKROLL_USD === "0" ? 0 : envNumber("ETF_MR_BANKROLL_USD", 5000);
+const ETF_MR_MAX_POSITIONS = envNumber("ETF_MR_MAX_POSITIONS", 10);
+const ETF_MR_HISTORY_WINDOW_DAYS = envNumber("ETF_MR_HISTORY_WINDOW_DAYS", 260);
+const ETF_MR_SMA_PERIOD = envNumber("ETF_MR_SMA_PERIOD", 200);
+const ETF_MR_MIN_TREND_BARS = envNumber("ETF_MR_MIN_TREND_BARS", 50);
+const ETF_MR_LONGS_ONLY = envBool("ETF_MR_LONGS_ONLY", true);
+
+// Resolve a (possibly unknown) strategy string to its config. Anything that
+// isn't "etf-mr" maps to the core champion config, so a stray value can never
+// silently enable the experimental gates.
+export function strategyConfig(strategy: string): StrategyConfig {
+  if (strategy === ETF_MR_STRATEGY) {
+    return {
+      strategy: ETF_MR_STRATEGY,
+      label: "ETF Drop & Climb",
+      bankrollUsd: ETF_MR_BANKROLL_USD,
+      maxPositions: ETF_MR_MAX_POSITIONS,
+      historyWindowDays: ETF_MR_HISTORY_WINDOW_DAYS,
+      trendFilter: true,
+      smaPeriod: ETF_MR_SMA_PERIOD,
+      minTrendBars: ETF_MR_MIN_TREND_BARS,
+      longsOnly: ETF_MR_LONGS_ONLY,
+    };
+  }
+  return {
+    strategy: CORE_STRATEGY,
+    label: "Single-stock streak",
+    bankrollUsd: BOT_BANKROLL_USD,
+    maxPositions: BOT_MAX_POSITIONS,
+    // The champion's historical fetch window — unchanged.
+    historyWindowDays: 90,
+    trendFilter: false,
+    smaPeriod: 0,
+    minTrendBars: 0,
+    longsOnly: false,
+  };
+}
 
 // eToro rejects rates with excess precision; 4 decimals is fine-grained enough
 // for sub-$10 instruments while staying within accepted tick formats.

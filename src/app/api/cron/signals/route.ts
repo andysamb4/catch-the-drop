@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { getQuote } from "@/lib/finnhub";
 import { getDailyCandles } from "@/lib/etoro";
 import { detectStreakSignal } from "@/lib/signals";
+import { trendGate } from "@/lib/trend";
 import { computeYoyoScore } from "@/lib/yoyo-score";
 import { utcDateOnly } from "@/lib/date";
 import { findMissingTradingDays } from "@/lib/price-gaps";
@@ -13,12 +14,11 @@ import {
   reconcilePositions,
   type SignalOrderOutcome,
 } from "@/lib/auto-trade";
-import { getEtoroMode } from "@/lib/trading-config";
+import { getEtoroMode, strategyConfig } from "@/lib/trading-config";
 import type { WatchlistItem } from "@/generated/prisma/client";
 
 export const maxDuration = 300;
 
-const HISTORY_WINDOW_DAYS = 90;
 // eToro keeps serving candle history for delisted/halted instruments; without this
 // guard a months-old streak would be re-emitted as a signal dated today.
 const STALE_HISTORY_MS = 7 * 24 * 60 * 60 * 1000;
@@ -31,6 +31,9 @@ type TickerResult = {
   symbol: string;
   status: string;
   signal?: string;
+  // Free-form note (e.g. which SMA the trend gate used, or why an etf-mr signal
+  // was blocked) — surfaced in the run's JSON so the experiment is auditable.
+  note?: string;
   // Set when a signal was stored and the ticker is auto-tradeable (has an
   // eToro instrument ID) — consumed by the order-placement pass after the scan.
   tradeInput?: {
@@ -38,6 +41,7 @@ type TickerResult = {
     instrumentId: number;
     type: "BUY" | "SHORT";
     lastClose: number;
+    strategy: string;
   };
 };
 
@@ -46,6 +50,11 @@ async function scanTicker(
   minSignalMovePct: number,
   today: Date
 ): Promise<TickerResult> {
+  // Strategy config decides how much history to fetch and whether the SMA trend
+  // gate / longs-only rules apply. "core" tickers resolve to the champion config
+  // (90-day window, no gate) so their behaviour is unchanged.
+  const cfg = strategyConfig(ticker.strategy);
+
   // Series used for streak detection and yoyo scoring. For eToro tickers this is
   // the candle history exactly as eToro serves it; for Finnhub tickers it is
   // rebuilt from stored PriceBars below.
@@ -55,7 +64,7 @@ async function scanTicker(
     // eToro path: full daily OHLCV history. createMany backfills any bars we
     // missed (gaps self-heal), the upsert refreshes the newest bar in case an
     // intraday snapshot of it was stored earlier the same day.
-    const candles = await getDailyCandles(ticker.etoroInstrumentId, HISTORY_WINDOW_DAYS);
+    const candles = await getDailyCandles(ticker.etoroInstrumentId, cfg.historyWindowDays);
     if (candles.length === 0) {
       return { symbol: ticker.symbol, status: "no_candles" };
     }
@@ -114,7 +123,7 @@ async function scanTicker(
     const recentBars = await prisma.priceBar.findMany({
       where: { symbol: ticker.symbol },
       orderBy: { date: "desc" },
-      take: HISTORY_WINDOW_DAYS,
+      take: cfg.historyWindowDays,
     });
     const barsAsc = [...recentBars].reverse();
 
@@ -126,7 +135,32 @@ async function scanTicker(
     detectionBars = barsAsc;
   }
 
-  const signal = detectStreakSignal(detectionBars, minSignalMovePct);
+  const detected = detectStreakSignal(detectionBars, minSignalMovePct);
+
+  // For etf-mr, the streak is only a valid signal if it agrees with the long-SMA
+  // trend (buy dips in uptrends, fade rallies in downtrends). A blocked streak or
+  // one without enough history to judge the trend produces no signal at all — so
+  // "etf-mr produces signals only where the trend gate passes". core skips this.
+  let signal = detected;
+  let note: string | undefined;
+  if (detected && cfg.trendFilter) {
+    const gate = trendGate(
+      detectionBars.map((b) => b.close),
+      detected.type,
+      cfg.smaPeriod,
+      cfg.minTrendBars
+    );
+    if (!gate) {
+      signal = null;
+      note = "trend-gate: insufficient history";
+    } else if (!gate.passed) {
+      signal = null;
+      note = `trend-gate blocked ${detected.type} (SMA${gate.periodUsed})`;
+    } else {
+      note = `trend-gate passed (SMA${gate.periodUsed})`;
+    }
+  }
+
   let tradeInput: TickerResult["tradeInput"];
   if (signal) {
     const signalRow = await prisma.signal.upsert({
@@ -143,16 +177,23 @@ async function scanTicker(
         type: signal.type,
         streakLength: signal.streakLength,
         cumulativeMovePct: signal.cumulativeMovePct,
+        strategy: ticker.strategy,
       },
     });
     // Only eToro-mapped tickers are executable; Finnhub-only tickers stay signal-only.
-    if (ticker.etoroInstrumentId) {
+    // Longs-only strategies record the SHORT signal above but never queue an order
+    // for it, so no etf-mr SHORT orders appear while the switch is on.
+    const suppressedShort = cfg.longsOnly && signal.type === "SHORT";
+    if (ticker.etoroInstrumentId && !suppressedShort) {
       tradeInput = {
         signalId: signalRow.id,
         instrumentId: ticker.etoroInstrumentId,
         type: signal.type,
         lastClose: detectionBars[detectionBars.length - 1].close,
+        strategy: ticker.strategy,
       };
+    } else if (suppressedShort) {
+      note = note ? `${note}; SHORT not traded (longs-only)` : "SHORT not traded (longs-only)";
     }
   }
 
@@ -170,7 +211,7 @@ async function scanTicker(
     },
   });
 
-  return { symbol: ticker.symbol, status: "ok", signal: signal?.type, tradeInput };
+  return { symbol: ticker.symbol, status: "ok", signal: signal?.type, note, tradeInput };
 }
 
 export async function GET(request: NextRequest) {
@@ -248,6 +289,11 @@ export async function GET(request: NextRequest) {
     orders,
     ...(reconcileError && { reconcileError }),
     // tradeInput was plumbing for the order pass, not reporting — drop it
-    results: results.map((r) => ({ symbol: r.symbol, status: r.status, signal: r.signal })),
+    results: results.map((r) => ({
+      symbol: r.symbol,
+      status: r.status,
+      signal: r.signal,
+      ...(r.note && { note: r.note }),
+    })),
   });
 }

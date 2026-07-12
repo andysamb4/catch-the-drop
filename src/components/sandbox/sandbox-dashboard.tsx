@@ -29,6 +29,7 @@ type SandboxData = {
     unrealizedPnl: number | null;
     openedAt: string;
     isBot: boolean;
+    strategy: string | null;
   }>;
   pendingOrders: Array<{
     id: string;
@@ -37,6 +38,7 @@ type SandboxData = {
     requestedUsd: number;
     takeProfitRate: number | null;
     placedAt: string;
+    strategy: string;
   }>;
   closedPositions: Array<{
     id: string;
@@ -48,6 +50,7 @@ type SandboxData = {
     realizedPnl: number | null;
     closeReason: string | null;
     closedAt: string | null;
+    strategy: string;
   }>;
   failedOrders: Array<{
     id: string;
@@ -55,6 +58,7 @@ type SandboxData = {
     direction: string;
     error: string | null;
     placedAt: string;
+    strategy: string;
   }>;
   events: Array<{
     id: string;
@@ -70,13 +74,19 @@ type SandboxData = {
     lastPollAt: string | null;
     etoroReachable: boolean;
   };
-  bankroll: {
-    equity: number;
-    deployed: number;
-    available: number;
-    openSlots: number;
-    nextTradeUsd: number;
-  } | null;
+  strategies: Array<{
+    strategy: string;
+    label: string;
+    bankrollUsd: number;
+    equity: number | null;
+    realizedPnl: number;
+    deployedUsd: number;
+    openCount: number;
+    closedCount: number;
+    wins: number;
+    winRate: number | null;
+    nextTradeUsd: number | null;
+  }>;
   config: {
     tradeSizeUsd: number;
     bankrollUsd: number | null;
@@ -92,6 +102,20 @@ const usd = (n: number) =>
 
 const rate = (n: number | null | undefined) =>
   n == null ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+const pct = (n: number | null | undefined) =>
+  n == null ? "—" : `${(n * 100).toFixed(0)}%`;
+
+// Only the challenger gets a badge — the champion is the unmarked default, so
+// its rows stay uncluttered. Legacy positions (strategy === null) get nothing.
+function StrategyTag({ strategy }: { strategy: string | null }) {
+  if (strategy !== "etf-mr") return null;
+  return (
+    <Badge variant="outline" className="border-sky-500/50 text-sky-700 dark:text-sky-400">
+      ETF-MR
+    </Badge>
+  );
+}
 
 const time = (iso: string | null | undefined) =>
   iso
@@ -226,35 +250,72 @@ export function SandboxDashboard({ refreshMs }: { refreshMs: number }) {
             </p>
           </div>
 
-          {/* Bot bankroll — the compounding base, separate from the demo account's legacy holdings */}
-          {data.bankroll && (
-            <div className="rounded-2xl border border-amber-500/40 bg-card p-4">
-              <p className="text-xs text-muted-foreground">Bot bankroll (realized compounding)</p>
-              <div className="mt-2 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">Equity</p>
-                  <p className={`font-semibold tabular-nums ${pnlClass(
-                    data.config.bankrollUsd != null ? data.bankroll.equity - data.config.bankrollUsd : null
-                  )}`}>
-                    {usd(data.bankroll.equity)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Deployed</p>
-                  <p className="font-semibold tabular-nums">{usd(data.bankroll.deployed)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Available</p>
-                  <p className="font-semibold tabular-nums">{usd(data.bankroll.available)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Next trade</p>
-                  <p className="font-semibold tabular-nums">
-                    {data.bankroll.openSlots === 0 ? "slots full" : usd(data.bankroll.nextTradeUsd)}
-                  </p>
-                </div>
+          {/* Champion vs challenger — one isolated bankroll scorecard per strategy.
+              Each pool's equity, realized P&L and win rate stand side by side so
+              the A/B comparison is legible at a glance. */}
+          {data.strategies.length > 0 && (
+            <section className="space-y-2">
+              <h2 className="text-sm font-semibold">Champion vs challenger</h2>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {data.strategies.map((s) => (
+                  <div key={s.strategy} className="rounded-2xl border border-amber-500/40 bg-card p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold">{s.label}</p>
+                      <Badge
+                        variant="outline"
+                        className={
+                          s.strategy === "etf-mr"
+                            ? "border-sky-500/50 text-sky-700 dark:text-sky-400"
+                            : "text-muted-foreground"
+                        }
+                      >
+                        {s.strategy}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Equity</p>
+                        <p
+                          className={`font-semibold tabular-nums ${pnlClass(
+                            s.equity != null ? s.equity - s.bankrollUsd : null
+                          )}`}
+                        >
+                          {s.equity == null ? "—" : usd(s.equity)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Realized P&L</p>
+                        <p className={`font-semibold tabular-nums ${pnlClass(s.realizedPnl)}`}>
+                          {usd(s.realizedPnl)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Win rate</p>
+                        <p className="font-semibold tabular-nums">
+                          {pct(s.winRate)}
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">
+                            ({s.wins}/{s.closedCount})
+                          </span>
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Open / next</p>
+                        <p className="font-semibold tabular-nums">
+                          {s.openCount}
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">
+                            {s.nextTradeUsd == null
+                              ? ""
+                              : s.nextTradeUsd === 0
+                                ? "· full"
+                                : `· ${usd(s.nextTradeUsd)}`}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
+            </section>
           )}
 
           {/* Virtual balance */}
@@ -300,7 +361,8 @@ export function SandboxDashboard({ refreshMs }: { refreshMs: number }) {
                       <TableRow key={o.id}>
                         <TableCell>
                           <span className="font-semibold">{o.symbol}</span>{" "}
-                          {o.direction === "SHORT" && <Badge variant="destructive">SHORT</Badge>}
+                          {o.direction === "SHORT" && <Badge variant="destructive">SHORT</Badge>}{" "}
+                          <StrategyTag strategy={o.strategy} />
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{usd(o.requestedUsd)}</TableCell>
                         <TableCell className="text-right tabular-nums">{rate(o.takeProfitRate)}</TableCell>
@@ -341,6 +403,7 @@ export function SandboxDashboard({ refreshMs }: { refreshMs: number }) {
                           <div className="flex items-center gap-1.5">
                             <span className="font-semibold">{p.symbol}</span>
                             {p.direction === "SHORT" && <Badge variant="destructive">SHORT</Badge>}
+                            <StrategyTag strategy={p.strategy} />
                             {p.isBot && (
                               <Badge variant="outline" className="text-muted-foreground">
                                 bot
@@ -391,7 +454,8 @@ export function SandboxDashboard({ refreshMs }: { refreshMs: number }) {
                       <TableRow key={p.id}>
                         <TableCell>
                           <span className="font-semibold">{p.symbol}</span>{" "}
-                          {p.direction === "SHORT" && <Badge variant="destructive">SHORT</Badge>}
+                          {p.direction === "SHORT" && <Badge variant="destructive">SHORT</Badge>}{" "}
+                          <StrategyTag strategy={p.strategy} />
                           <div className="text-xs text-muted-foreground">{time(p.closedAt)}</div>
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{rate(p.entryPrice)}</TableCell>
@@ -425,8 +489,8 @@ export function SandboxDashboard({ refreshMs }: { refreshMs: number }) {
                     key={o.id}
                     className="rounded-lg border border-destructive/40 bg-destructive/5 p-2.5 text-xs"
                   >
-                    <span className="font-semibold">{o.symbol}</span> {o.direction} ·{" "}
-                    {time(o.placedAt)}
+                    <span className="font-semibold">{o.symbol}</span> {o.direction}{" "}
+                    <StrategyTag strategy={o.strategy} /> · {time(o.placedAt)}
                     <div className="mt-0.5 break-words text-destructive">{o.error}</div>
                   </div>
                 ))}

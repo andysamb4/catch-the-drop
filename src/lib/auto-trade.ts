@@ -9,12 +9,11 @@ import {
   type LivePortfolio,
 } from "@/lib/etoro-execution";
 import {
-  BOT_BANKROLL_USD,
-  BOT_MAX_POSITIONS,
   MIN_TRADE_USD,
   TRADE_SIZE_USD,
   isAutoTradeEnabled,
   stopLossRateFor,
+  strategyConfig,
   takeProfitRateFor,
   type EtoroMode,
 } from "@/lib/trading-config";
@@ -38,6 +37,8 @@ export type SignalOrderInput = {
   // Latest close from the detection series — the entry estimate the TP is
   // anchored to until the real fill price is known (see reconcile).
   lastClose: number;
+  // "core" | "etf-mr" — tags the position and picks the isolated bankroll pool.
+  strategy: string;
 };
 
 export type SignalOrderOutcome = {
@@ -58,50 +59,111 @@ export type BankrollState = {
   nextTradeUsd: number;
 };
 
-// Bankroll snapshot for `mode`. Realized-only compounding: equity grows with
-// booked wins but is NOT marked to market, so a losing open bag can't inflate
-// or deflate the sizing of other slots — it just keeps its capital locked.
-export async function getBankrollState(mode: EtoroMode): Promise<BankrollState> {
+// Bankroll snapshot for one (mode, strategy). Each strategy runs an isolated
+// pool — its base, slot count, realized P&L and locked capital are all scoped to
+// its own positions, so the challenger never draws from the champion's bankroll
+// and vice versa. Realized-only compounding: equity grows with booked wins but is
+// NOT marked to market, so a losing open bag can't inflate or deflate the sizing
+// of other slots — it just keeps its capital locked.
+export async function getBankrollState(
+  mode: EtoroMode,
+  strategy: string
+): Promise<BankrollState> {
+  const cfg = strategyConfig(strategy);
   const [realized, locked] = await Promise.all([
     prisma.botPosition.aggregate({
-      where: { mode, status: "CLOSED" },
+      where: { mode, strategy, status: "CLOSED" },
       _sum: { realizedPnl: true },
     }),
     prisma.botPosition.aggregate({
-      where: { mode, status: { in: ["PENDING", "OPEN"] } },
+      where: { mode, strategy, status: { in: ["PENDING", "OPEN"] } },
       _sum: { requestedUsd: true },
       _count: true,
     }),
   ]);
 
-  const equity = BOT_BANKROLL_USD + (realized._sum.realizedPnl ?? 0);
+  const equity = cfg.bankrollUsd + (realized._sum.realizedPnl ?? 0);
   const deployed = locked._sum.requestedUsd ?? 0;
   const available = Math.max(0, equity - deployed);
-  const openSlots = Math.max(0, BOT_MAX_POSITIONS - locked._count);
-  const slotSize = equity / BOT_MAX_POSITIONS;
+  const openSlots = Math.max(0, cfg.maxPositions - locked._count);
+  const slotSize = equity / cfg.maxPositions;
   const nextTradeUsd =
     openSlots === 0 ? 0 : Math.floor(Math.min(slotSize, available) * 100) / 100;
 
   return { equity, deployed, available, openSlots, nextTradeUsd };
 }
 
-// Size of the next trade, or a skip reason. Fixed TRADE_SIZE_USD when
-// bankroll sizing is disabled.
+// Size of the next trade for a strategy, or a skip reason. Fixed TRADE_SIZE_USD
+// when that strategy's bankroll sizing is disabled (bankrollUsd = 0).
 async function nextTradeSize(
-  mode: EtoroMode
+  mode: EtoroMode,
+  strategy: string
 ): Promise<{ sizeUsd: number } | { skip: string }> {
-  if (BOT_BANKROLL_USD <= 0) return { sizeUsd: TRADE_SIZE_USD };
+  const cfg = strategyConfig(strategy);
+  if (cfg.bankrollUsd <= 0) return { sizeUsd: TRADE_SIZE_USD };
 
-  const bankroll = await getBankrollState(mode);
+  const bankroll = await getBankrollState(mode, strategy);
   if (bankroll.openSlots === 0) {
-    return { skip: `all ${BOT_MAX_POSITIONS} bankroll slots in use` };
+    return { skip: `all ${cfg.maxPositions} ${strategy} bankroll slots in use` };
   }
   if (bankroll.nextTradeUsd < MIN_TRADE_USD) {
     return {
-      skip: `bankroll nearly fully deployed ($${bankroll.available.toFixed(2)} of $${bankroll.equity.toFixed(2)} available)`,
+      skip: `${strategy} bankroll nearly fully deployed ($${bankroll.available.toFixed(2)} of $${bankroll.equity.toFixed(2)} available)`,
     };
   }
   return { sizeUsd: bankroll.nextTradeUsd };
+}
+
+// Per-strategy scorecard for the sandbox comparison view: bankroll equity,
+// realized P&L, win rate and exposure, all scoped to one (mode, strategy).
+export type StrategySummary = {
+  strategy: string;
+  label: string;
+  // Configured bankroll base (0 => fixed-size trades, so equity is null).
+  bankrollUsd: number;
+  equity: number | null;
+  realizedPnl: number;
+  deployedUsd: number;
+  openCount: number;
+  closedCount: number;
+  wins: number;
+  winRate: number | null;
+  nextTradeUsd: number | null;
+};
+
+export async function getStrategySummary(
+  mode: EtoroMode,
+  strategy: string
+): Promise<StrategySummary> {
+  const cfg = strategyConfig(strategy);
+  const [realized, deployedAgg, openCount, closedCount, wins, bankroll] = await Promise.all([
+    prisma.botPosition.aggregate({
+      where: { mode, strategy, status: "CLOSED" },
+      _sum: { realizedPnl: true },
+    }),
+    prisma.botPosition.aggregate({
+      where: { mode, strategy, status: { in: ["PENDING", "OPEN"] } },
+      _sum: { requestedUsd: true },
+    }),
+    prisma.botPosition.count({ where: { mode, strategy, status: { in: ["PENDING", "OPEN"] } } }),
+    prisma.botPosition.count({ where: { mode, strategy, status: "CLOSED" } }),
+    prisma.botPosition.count({ where: { mode, strategy, status: "CLOSED", realizedPnl: { gt: 0 } } }),
+    cfg.bankrollUsd > 0 ? getBankrollState(mode, strategy) : Promise.resolve(null),
+  ]);
+
+  return {
+    strategy: cfg.strategy,
+    label: cfg.label,
+    bankrollUsd: cfg.bankrollUsd,
+    equity: bankroll?.equity ?? null,
+    realizedPnl: realized._sum.realizedPnl ?? 0,
+    deployedUsd: deployedAgg._sum.requestedUsd ?? 0,
+    openCount,
+    closedCount,
+    wins,
+    winRate: closedCount > 0 ? wins / closedCount : null,
+    nextTradeUsd: bankroll?.nextTradeUsd ?? null,
+  };
 }
 
 // Places the bankroll-sized market order for a confirmed signal, with eToro's
@@ -117,11 +179,14 @@ export async function executeSignalOrder(
     return { symbol: input.symbol, outcome: "skipped", detail: "auto-trade disabled" };
   }
 
-  // One position per symbol per mode: a 4-day streak re-fires the signal that a
-  // 3-day streak already traded — don't pyramid $100 onto it every day.
+  // One position per symbol per mode+strategy: a 4-day streak re-fires the signal
+  // that a 3-day streak already traded — don't pyramid onto it every day. (A
+  // symbol belongs to exactly one strategy, so this is really per-symbol; the
+  // strategy filter just keeps the scope explicit.)
   const existing = await prisma.botPosition.findFirst({
     where: {
       mode,
+      strategy: input.strategy,
       symbol: input.symbol,
       OR: [{ status: "PENDING" }, { status: "OPEN" }, { signalId: input.signalId }],
     },
@@ -139,7 +204,7 @@ export async function executeSignalOrder(
 
   // Sized per order, inside the sequential order pass: each placed order books
   // its capital as a PENDING row, so the next signal sees the reduced bankroll.
-  const sizing = await nextTradeSize(mode);
+  const sizing = await nextTradeSize(mode, input.strategy);
   if ("skip" in sizing) {
     await logBotEvent(mode, "ORDER_SKIPPED", `${input.symbol} ${direction}: ${sizing.skip}`, {
       symbol: input.symbol,
@@ -165,6 +230,7 @@ export async function executeSignalOrder(
     await prisma.botPosition.create({
       data: {
         mode,
+        strategy: input.strategy,
         symbol: input.symbol,
         instrumentId: input.instrumentId,
         direction,
@@ -183,6 +249,7 @@ export async function executeSignalOrder(
       .create({
         data: {
           mode,
+          strategy: input.strategy,
           symbol: input.symbol,
           instrumentId: input.instrumentId,
           direction,

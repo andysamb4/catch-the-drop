@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getBankrollState, reconcilePositions } from "@/lib/auto-trade";
+import { getStrategySummary, reconcilePositions } from "@/lib/auto-trade";
 import { getInstrumentInfo } from "@/lib/etoro";
 import type { LivePortfolio } from "@/lib/etoro-execution";
 import {
   BOT_BANKROLL_USD,
   BOT_MAX_POSITIONS,
+  KNOWN_STRATEGIES,
   STOP_LOSS_PCT,
   TAKE_PROFIT_PCT,
   TRADE_SIZE_USD,
@@ -31,7 +32,7 @@ export async function GET() {
     etoroError = (err as Error).message;
   }
 
-  const [botPositions, events, lastPoll, bankroll] = await Promise.all([
+  const [botPositions, events, lastPoll, strategies] = await Promise.all([
     prisma.botPosition.findMany({
       where: { mode: SANDBOX_MODE },
       orderBy: { openedAt: "desc" },
@@ -46,7 +47,8 @@ export async function GET() {
       where: { mode: SANDBOX_MODE, type: "POLL" },
       orderBy: { createdAt: "desc" },
     }),
-    BOT_BANKROLL_USD > 0 ? getBankrollState(SANDBOX_MODE) : Promise.resolve(null),
+    // Champion vs challenger scorecards — one per known strategy, all demo-scoped.
+    Promise.all(KNOWN_STRATEGIES.map((s) => getStrategySummary(SANDBOX_MODE, s))),
   ]);
 
   const botByPositionId = new Map(
@@ -78,6 +80,8 @@ export async function GET() {
       unrealizedPnl: p.unrealizedPnL?.pnL ?? null,
       openedAt: p.openDateTime,
       isBot: bot != null,
+      // null for legacy demo positions the bot didn't open.
+      strategy: bot?.strategy ?? null,
     };
   });
 
@@ -101,6 +105,7 @@ export async function GET() {
         requestedUsd: p.requestedUsd,
         takeProfitRate: p.takeProfitRate,
         placedAt: p.openedAt,
+        strategy: p.strategy,
       })),
     closedPositions: botPositions
       .filter((p) => p.status === "CLOSED")
@@ -114,6 +119,7 @@ export async function GET() {
         realizedPnl: p.realizedPnl,
         closeReason: p.closeReason,
         closedAt: p.closedAt,
+        strategy: p.strategy,
       })),
     failedOrders: botPositions
       .filter((p) => p.status === "FAILED")
@@ -124,6 +130,7 @@ export async function GET() {
         direction: p.direction,
         error: p.error,
         placedAt: p.openedAt,
+        strategy: p.strategy,
       })),
     events: events.map((e) => ({
       id: e.id,
@@ -139,8 +146,8 @@ export async function GET() {
       lastPollAt: lastPoll?.createdAt ?? null,
       etoroReachable: etoroError === null,
     },
-    // Null when bankroll sizing is disabled (fixed TRADE_SIZE_USD per trade).
-    bankroll,
+    // Per-strategy scorecards (champion "core" vs challenger "etf-mr"), demo-scoped.
+    strategies,
     config: {
       tradeSizeUsd: TRADE_SIZE_USD,
       bankrollUsd: BOT_BANKROLL_USD > 0 ? BOT_BANKROLL_USD : null,

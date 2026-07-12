@@ -20,6 +20,11 @@ model WatchlistItem {
   sector            String?
   notes             String?
   active            Boolean      @default(true)
+  // Which trading strategy owns this ticker. "core" = the original single-stock
+  // streak bot (champion); "etf-mr" = the ETF mean-reversion challenger, which
+  // adds a 200-day-SMA trend gate and runs an isolated bankroll. A symbol belongs
+  // to exactly one strategy (symbol is unique). Existing rows default to "core".
+  strategy          String       @default("core")
   yoyoScore         Float?
   yoyoScoreAt       DateTime?
   strategyFit       StrategyFit?
@@ -68,6 +73,9 @@ model Signal {
   streakLength      Int
   cumulativeMovePct Float
   aiCommentary      String?
+  // Inherited from the ticker's WatchlistItem.strategy at scan time, so signal
+  // history can be split champion vs challenger. Defaults to "core".
+  strategy          String     @default("core")
   createdAt         DateTime   @default(now())
 
   watchlistItem WatchlistItem @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
@@ -125,6 +133,10 @@ enum BotPositionStatus {
 model BotPosition {
   id             String            @id @default(cuid())
   mode           String // "demo" | "real"
+  // Strategy that opened this position, copied from the signal. Segregates P&L
+  // and the compounding bankroll between champion ("core") and challenger
+  // ("etf-mr"). Existing rows default to "core".
+  strategy       String            @default("core")
   symbol         String
   instrumentId   Int
   direction      TradeDirection
