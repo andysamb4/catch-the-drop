@@ -81,6 +81,42 @@ endpoints regardless of `ETORO_MODE` — they can never touch real-money data.
 Note: trading needs eToro keys with trade permission; the original keys were
 read-only (see memory: etoro-api-integration).
 
+## Strategies (champion vs challenger)
+
+Every `WatchlistItem`, `Signal`, and `BotPosition` carries a `strategy` label
+that flows watchlist → signal → position. Two strategies run in parallel on
+demo, isolated for comparison (see `strategyConfig()` in `trading-config.ts`):
+
+- **`core`** (champion, default) — the original single-stock streak bot. 90-day
+  history, no trend filter, trades both directions. Every pre-existing row
+  defaults to `core`; its behaviour is unchanged.
+- **`etf-mr`** (challenger) — the same `detectStreakSignal` engine over a liquid
+  ETF universe, gated by a long-SMA **trend filter** (BUY only when price is
+  above its SMA, SHORT only below) and run **longs-only** by default on its own
+  isolated compounding bankroll. Uses a 260-day history window so the SMA200 has
+  real data. SHORT signals are still recorded but not traded while longs-only.
+
+`strategy` is orthogonal to `mode` (demo/real) — never overload one for the
+other. The `/sandbox` page shows a champion-vs-challenger scorecard (equity,
+realized P&L, win rate, exposure per strategy).
+
+Challenger env config (all optional, `trading-config.ts`):
+- `ETF_MR_BANKROLL_USD` — default 5000; isolated pool, never draws from core's.
+- `ETF_MR_MAX_POSITIONS` — default 10.
+- `ETF_MR_LONGS_ONLY` — default `true`; set `false` to also trade SHORT.
+- `ETF_MR_SMA_PERIOD` — default 200. `ETF_MR_MIN_TREND_BARS` — default 50 (below
+  this, no signal rather than trade blind). `ETF_MR_HISTORY_WINDOW_DAYS` — 260.
+
+Seeding the ETF universe (resolves eToro instrument IDs against the full
+catalogue, drops unlisted symbols, never repurposes existing rows):
+```bash
+NODE_OPTIONS=--use-system-ca npx tsx prisma/seed-etf-mr.ts            # tier 1
+NODE_OPTIONS=--use-system-ca npx tsx prisma/seed-etf-mr.ts --tiers=1,2
+```
+Tier 1 is live (33 ETFs; SPY/QQQ were reassigned from core, VYM/VLUE dropped as
+unlisted). eToro's public API has no symbol→id lookup — `?symbols=` is ignored —
+so resolution fetches the whole ~15.5k-instrument list via `getAllInstruments()`.
+
 ## Stack
 - **Framework**: Next.js
 - **Database**: Prisma + PostgreSQL
