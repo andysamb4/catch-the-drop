@@ -16,7 +16,9 @@ import {
 type SandboxData = {
   fetchedAt: string;
   etoroError: string | null;
-  account: { cash: number; invested: number; unrealizedPnl: number } | null;
+  // Bot-only figures — legacy demo positions the bot didn't open are excluded
+  // server-side. equity is mark-to-market (pool equity + open P&L).
+  account: { equity: number | null; invested: number; unrealizedPnl: number } | null;
   openPositions: Array<{
     positionId: string;
     symbol: string;
@@ -28,7 +30,6 @@ type SandboxData = {
     currentRate: number | null;
     unrealizedPnl: number | null;
     openedAt: string;
-    isBot: boolean;
     strategy: string | null;
   }>;
   pendingOrders: Array<{
@@ -107,7 +108,7 @@ const pct = (n: number | null | undefined) =>
   n == null ? "—" : `${(n * 100).toFixed(0)}%`;
 
 // Only the challenger gets a badge — the champion is the unmarked default, so
-// its rows stay uncluttered. Legacy positions (strategy === null) get nothing.
+// its rows stay uncluttered.
 function StrategyTag({ strategy }: { strategy: string | null }) {
   if (strategy !== "etf-mr") return null;
   return (
@@ -173,10 +174,6 @@ export function SandboxDashboard({ refreshMs }: { refreshMs: number }) {
     startTimer();
     load();
   };
-
-  const equity = data?.account
-    ? data.account.cash + data.account.invested + data.account.unrealizedPnl
-    : null;
 
   return (
     <div className="space-y-4">
@@ -318,18 +315,18 @@ export function SandboxDashboard({ refreshMs }: { refreshMs: number }) {
             </section>
           )}
 
-          {/* Virtual balance */}
+          {/* Bot balance — legacy demo positions are excluded server-side */}
           <div className="grid grid-cols-3 gap-2 sm:gap-3">
             <div className="min-w-0 rounded-2xl border border-amber-500/40 bg-card p-3 sm:p-4">
-              <p className="text-xs text-muted-foreground">Virtual equity</p>
+              <p className="text-xs text-muted-foreground">Bot equity</p>
               <p className="mt-1 text-lg font-semibold tabular-nums sm:text-2xl">
-                {equity == null ? "—" : usd(equity)}
+                {data.account?.equity == null ? "—" : usd(data.account.equity)}
               </p>
             </div>
             <div className="min-w-0 rounded-2xl border border-amber-500/40 bg-card p-3 sm:p-4">
-              <p className="text-xs text-muted-foreground">Cash</p>
+              <p className="text-xs text-muted-foreground">Deployed</p>
               <p className="mt-1 text-lg font-semibold tabular-nums sm:text-2xl">
-                {data.account ? usd(data.account.cash) : "—"}
+                {data.account ? usd(data.account.invested) : "—"}
               </p>
             </div>
             <div className="min-w-0 rounded-2xl border border-amber-500/40 bg-card p-3 sm:p-4">
@@ -379,10 +376,10 @@ export function SandboxDashboard({ refreshMs }: { refreshMs: number }) {
 
           {/* Open positions */}
           <section className="space-y-2">
-            <h2 className="text-sm font-semibold">Open positions (demo)</h2>
+            <h2 className="text-sm font-semibold">Open positions (bot)</h2>
             {data.openPositions.length === 0 ? (
               <p className="rounded-2xl border border-dashed border-amber-500/40 p-4 text-sm text-muted-foreground">
-                No open demo positions.
+                No open bot positions.
               </p>
             ) : (
               <div className="overflow-hidden rounded-2xl border border-amber-500/40">
@@ -404,11 +401,6 @@ export function SandboxDashboard({ refreshMs }: { refreshMs: number }) {
                             <span className="font-semibold">{p.symbol}</span>
                             {p.direction === "SHORT" && <Badge variant="destructive">SHORT</Badge>}
                             <StrategyTag strategy={p.strategy} />
-                            {p.isBot && (
-                              <Badge variant="outline" className="text-muted-foreground">
-                                bot
-                              </Badge>
-                            )}
                           </div>
                           {p.name && (
                             <div className="max-w-[120px] truncate text-xs text-muted-foreground">

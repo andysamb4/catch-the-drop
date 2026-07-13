@@ -55,44 +55,58 @@ export async function GET() {
     botPositions.filter((p) => p.positionId).map((p) => [p.positionId!, p])
   );
 
-  // Resolve instrument IDs to tickers for demo positions the bot didn't open.
+  // Legacy demo positions (opened outside the bot) are ignored everywhere on
+  // this page — the balance cards and the positions table are bot-only, so the
+  // account's old manual trades can't drown out the strategies under test.
+  const botLive = (portfolio?.positions ?? []).filter((p) =>
+    botByPositionId.has(String(p.positionID))
+  );
+
+  // Resolve instrument IDs to company names for display.
   let instrumentInfo = new Map<number, { symbol: string; name: string }>();
-  if (portfolio && portfolio.positions.length > 0) {
+  if (botLive.length > 0) {
     try {
-      instrumentInfo = await getInstrumentInfo(portfolio.positions.map((p) => p.instrumentID));
+      instrumentInfo = await getInstrumentInfo(botLive.map((p) => p.instrumentID));
     } catch {
-      // Non-fatal: fall back to bot records / raw instrument IDs below.
+      // Non-fatal: rows fall back to the bot record's symbol with no name.
     }
   }
 
-  const openPositions = (portfolio?.positions ?? []).map((p) => {
-    const bot = botByPositionId.get(String(p.positionID));
+  const openPositions = botLive.map((p) => {
+    const bot = botByPositionId.get(String(p.positionID))!;
     const info = instrumentInfo.get(p.instrumentID);
     return {
       positionId: String(p.positionID),
-      symbol: bot?.symbol ?? info?.symbol ?? `#${p.instrumentID}`,
+      symbol: bot.symbol,
       name: info?.name ?? "",
       direction: p.isBuy ? "LONG" : "SHORT",
       investedUsd: p.initialAmountInDollars ?? p.amount,
       entryPrice: p.openRate,
-      takeProfitRate: p.takeProfitRate ?? bot?.takeProfitRate ?? null,
+      takeProfitRate: p.takeProfitRate ?? bot.takeProfitRate ?? null,
       currentRate: p.unrealizedPnL?.closeRate ?? null,
       unrealizedPnl: p.unrealizedPnL?.pnL ?? null,
       openedAt: p.openDateTime,
-      isBot: bot != null,
-      // null for legacy demo positions the bot didn't open.
-      strategy: bot?.strategy ?? null,
+      strategy: bot.strategy,
     };
   });
+
+  const invested = openPositions.reduce((sum, p) => sum + (p.investedUsd ?? 0), 0);
+  const unrealizedPnl = openPositions.reduce((sum, p) => sum + (p.unrealizedPnl ?? 0), 0);
+  // Pool equity is realized-only (bankroll + booked P&L); adding open P&L gives
+  // the mark-to-market figure for the header. Null when a strategy runs fixed
+  // sizing (bankrollUsd = 0) — there's no equity notion to sum in that case.
+  const poolEquity = strategies.every((s) => s.equity != null)
+    ? strategies.reduce((sum, s) => sum + (s.equity ?? 0), 0)
+    : null;
 
   return NextResponse.json({
     fetchedAt: new Date().toISOString(),
     etoroError,
     account: portfolio
       ? {
-          cash: portfolio.credit,
-          invested: openPositions.reduce((sum, p) => sum + (p.investedUsd ?? 0), 0),
-          unrealizedPnl: portfolio.unrealizedPnL,
+          equity: poolEquity == null ? null : poolEquity + unrealizedPnl,
+          invested,
+          unrealizedPnl,
         }
       : null,
     openPositions,
