@@ -73,7 +73,12 @@ Env config (`src/lib/trading-config.ts`), all optional:
 - `MIN_TRADE_USD` — default 50 (skip signals rather than place dust orders).
 - `TRADE_SIZE_USD` — default 100; only used when `BOT_BANKROLL_USD=0`.
 - `TAKE_PROFIT_PCT` — default 0.025 (2.5% favourable move, server-side TP).
-- `STOP_LOSS_PCT` — unset = no stop-loss (disabled hook; set e.g. 0.05 to enable).
+- `STOP_LOSS_PCT` — unset = no stop-loss on LONGS (set e.g. 0.05 to enable both ways).
+- `SHORT_STOP_LOSS_PCT` — default 0.10. eToro REQUIRES a stopLossRate on every
+  short (`sellShort`) order, so shorts always carry a stop: `STOP_LOSS_PCT` if
+  set, else this wide emergency stop. Discovered 2026-07-13 — shorts had
+  silently failed since launch (`transaction: "sell"` is unsupported by the
+  API; shorts open as `sellShort`).
 - `SANDBOX_REFRESH_MS` — default 7200000 (sandbox page auto-refresh, 2 h).
 
 `/sandbox` page + `GET /api/sandbox` are hard-pinned to eToro's `/demo/`

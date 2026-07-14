@@ -94,6 +94,7 @@ type SandboxData = {
     maxPositions: number;
     takeProfitPct: number;
     stopLossPct: number | null;
+    shortStopLossPct: number;
   };
 };
 
@@ -242,8 +243,10 @@ export function SandboxDashboard({ refreshMs }: { refreshMs: number }) {
                 ? `$${data.config.bankrollUsd} bankroll / ${data.config.maxPositions} slots`
                 : `$${data.config.tradeSizeUsd}/trade`}{" "}
               · TP {(data.config.takeProfitPct * 100).toFixed(1)}%
-              {data.config.stopLossPct != null &&
-                ` · SL ${(data.config.stopLossPct * 100).toFixed(1)}%`}
+              {data.config.stopLossPct != null
+                ? ` · SL ${(data.config.stopLossPct * 100).toFixed(1)}%`
+                : data.config.shortStopLossPct != null &&
+                  ` · short SL ${(data.config.shortStopLossPct * 100).toFixed(0)}%`}
             </p>
           </div>
 

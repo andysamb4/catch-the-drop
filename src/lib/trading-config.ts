@@ -65,6 +65,12 @@ export const STOP_LOSS_PCT: number | undefined = process.env.STOP_LOSS_PCT
   ? envNumber("STOP_LOSS_PCT", 0) || undefined
   : undefined;
 
+// eToro refuses to open a short without a stop-loss ("StopLossRate must be
+// provided … for SellShort transactions"), so shorts can never ride bare the
+// way longs do. When STOP_LOSS_PCT is unset, SHORT orders fall back to this
+// wide emergency stop; the take-profit remains the intended exit.
+export const SHORT_STOP_LOSS_PCT = envNumber("SHORT_STOP_LOSS_PCT", 0.1);
+
 // Sandbox page auto-refresh interval (2 hours).
 export const SANDBOX_REFRESH_MS = envNumber("SANDBOX_REFRESH_MS", 7_200_000);
 
@@ -157,13 +163,16 @@ export function takeProfitRateFor(direction: "LONG" | "SHORT", entryRate: number
   return roundRate(entryRate * factor);
 }
 
-// Stop-loss mirrors take-profit on the unfavourable side; returns undefined
-// while STOP_LOSS_PCT is unset so order payloads omit the field entirely.
+// Stop-loss mirrors take-profit on the unfavourable side. Longs may omit it
+// (undefined while STOP_LOSS_PCT is unset, so the payload drops the field),
+// but shorts always get one — eToro rejects sellShort orders without it.
 export function stopLossRateFor(
   direction: "LONG" | "SHORT",
   entryRate: number
 ): number | undefined {
-  if (STOP_LOSS_PCT === undefined) return undefined;
-  const factor = direction === "LONG" ? 1 - STOP_LOSS_PCT : 1 + STOP_LOSS_PCT;
-  return roundRate(entryRate * factor);
+  if (direction === "LONG") {
+    if (STOP_LOSS_PCT === undefined) return undefined;
+    return roundRate(entryRate * (1 - STOP_LOSS_PCT));
+  }
+  return roundRate(entryRate * (1 + (STOP_LOSS_PCT ?? SHORT_STOP_LOSS_PCT)));
 }

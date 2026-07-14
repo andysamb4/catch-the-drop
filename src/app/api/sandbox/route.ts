@@ -7,6 +7,7 @@ import {
   BOT_BANKROLL_USD,
   BOT_MAX_POSITIONS,
   KNOWN_STRATEGIES,
+  SHORT_STOP_LOSS_PCT,
   STOP_LOSS_PCT,
   TAKE_PROFIT_PCT,
   TRADE_SIZE_USD,
@@ -168,6 +169,7 @@ export async function GET() {
       maxPositions: BOT_MAX_POSITIONS,
       takeProfitPct: TAKE_PROFIT_PCT,
       stopLossPct: STOP_LOSS_PCT ?? null,
+      shortStopLossPct: SHORT_STOP_LOSS_PCT,
     },
   });
 }

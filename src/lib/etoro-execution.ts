@@ -105,11 +105,18 @@ export async function placeMarketOrder(params: PlaceOrderParams): Promise<PlaceO
       ? "/api/v2/trading/execution/demo/orders"
       : "/api/v2/trading/execution/orders";
 
+  // eToro's execution API rejects "sell"/"buyToCover" ("not supported in the
+  // current implementation") — shorts open as "sellShort", and every sellShort
+  // must carry a stopLossRate or it 400s. Verified against demo 2026-07-13.
+  if (params.direction === "SHORT" && params.stopLossRate === undefined) {
+    const err = new Error(`${operation} refused: eToro requires a stopLossRate on short orders`);
+    await logBotEvent(params.mode, "ORDER_BLOCKED", err.message, { symbol: params.symbol });
+    throw err;
+  }
+
   const body = {
     action: "open",
-    // eToro opens shorts as CFD "sell" orders; "sellShort"/"buyToCover" are for
-    // margin-settled real-stock accounts, which this bot doesn't use.
-    transaction: params.direction === "LONG" ? "buy" : "sell",
+    transaction: params.direction === "LONG" ? "buy" : "sellShort",
     instrumentId: params.instrumentId,
     orderType: "mkt",
     leverage: 1,
