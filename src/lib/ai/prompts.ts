@@ -12,17 +12,21 @@ export function morningBriefPrompt(signal: {
   cumulativeMovePct: number;
   marketContext?: string;
 }) {
-  return `Write one short paragraph (2-3 sentences, no headers) of commentary on this fresh signal for a personal trading journal:
+  return `Write commentary on this fresh signal for a personal trading journal. This gets scanned in a small card on a dashboard, not read as prose — it must be punchy and scannable, not a paragraph.
 
 Ticker: ${signal.symbol} (${signal.name})
 Signal: ${signal.type} after a ${signal.streakLength}-day streak, ${signal.cumulativeMovePct.toFixed(1)}% cumulative move.
 
-The strategy is mean-reversion: BUY signals bet on a bounce after a drop, SHORT signals bet on a pullback after a climb. Comment on whether this move looks like plausible mean-reversion noise or a sign of a stronger trend that could work against the bet. Do not repeat the raw numbers back verbatim — add perspective.${
+The strategy is mean-reversion: BUY signals bet on a bounce after a drop, SHORT signals bet on a pullback after a climb. Judge whether this move looks like plausible mean-reversion noise or a sign of a stronger trend that could work against the bet.
+
+Output EXACTLY this shape, nothing before or after it, no markdown headers or asterisks:
+Line 1: the verdict/action, max 8 words, plain statement (e.g. "Bounce looks likely" / "Fade this with a tight stop" / "Sit tight, this is noise" / "Wait for confirmation before sizing up"). Lead with the call — never bury it.
+Then 2-3 lines, each starting with "- ", each a single short clause (max 14 words) giving one distinct reason. Do not repeat the raw numbers back verbatim — add perspective, not restatement.${
     signal.marketContext
       ? `
 
 Overnight market alert: ${signal.marketContext}
-Weigh whether this streak is stock-specific or part of the market-wide move. If the whole market is being driven by this event, the drop/climb carries no ${signal.symbol}-specific information to revert — the bet becomes a macro bet with fatter tails, and the commentary should temper conviction accordingly (smaller size or waiting a day are valid middle answers).`
+Weigh whether this streak is stock-specific or part of the market-wide move. If the whole market is being driven by this event, the drop/climb carries no ${signal.symbol}-specific information to revert — the bet becomes a macro bet with fatter tails, and one bullet should temper conviction accordingly (smaller size or waiting a day are valid calls).`
       : ""
   }`;
 }

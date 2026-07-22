@@ -5,6 +5,35 @@ import { Sparkline } from "@/components/signals/sparkline";
 import { cn } from "@/lib/utils";
 import type { SignalDTO } from "@/lib/signal-dto";
 
+// Current commentary is generated as "verdict line, then '- ' bullets" (see
+// morningBriefPrompt). Older signals in the DB predate that format and are
+// still a plain paragraph, so fall back to rendering the raw text untouched.
+function parseCommentary(text: string): { verdict: string; bullets: string[] } | null {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const bullets = lines.filter((l) => /^[-•]\s+/.test(l)).map((l) => l.replace(/^[-•]\s+/, ""));
+  if (bullets.length === 0) return null;
+  const verdict = lines.find((l) => !/^[-•]\s+/.test(l)) ?? "";
+  return { verdict, bullets };
+}
+
+function CommentaryBody({ text }: { text: string }) {
+  const parsed = parseCommentary(text);
+  if (!parsed) return <p className="text-xs text-foreground/80">{text}</p>;
+  return (
+    <>
+      {parsed.verdict && <p className="text-xs font-semibold text-foreground">{parsed.verdict}</p>}
+      <ul className="mt-1 space-y-0.5">
+        {parsed.bullets.map((bullet, i) => (
+          <li key={i} className="flex gap-1.5 text-xs text-foreground/80">
+            <span className="text-muted-foreground">&middot;</span>
+            <span>{bullet}</span>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 export function SignalCard({ signal }: { signal: SignalDTO }) {
   const isBuy = signal.type === "BUY";
   const isPoorFit = signal.strategyFit === "POOR";
@@ -64,7 +93,7 @@ export function SignalCard({ signal }: { signal: SignalDTO }) {
               <Sparkles className="h-3 w-3 text-primary" />
               Why this fired
             </p>
-            <p className="text-xs text-foreground/80">{signal.aiCommentary}</p>
+            <CommentaryBody text={signal.aiCommentary} />
           </div>
         )}
       </CardContent>
