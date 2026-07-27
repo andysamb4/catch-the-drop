@@ -239,6 +239,26 @@ model MarketAlert {
   createdAt    DateTime @default(now())
 }
 
+// The everyday pre-US-open digest, one row per weekday, written by the
+// morning-brief cron regardless of severity — unlike MarketAlert, which stays
+// major-incidents-only. Reads like a futures-roundup column compressed to a
+// stance line + bullets: overnight tape, the week's catalysts, earnings that
+// touch held/watched names, and how open bot positions sit in that context.
+model DailyBrief {
+  id      String   @id @default(cuid())
+  date    DateTime @unique @db.Date
+  // Line 1 = market stance; each following line starts "- " (a bullet).
+  content String
+  // Overnight tape at generation time, rendered as chips beside the text.
+  // Null where the individual Yahoo fetch failed.
+  spFuturesPct     Float?
+  nasdaqFuturesPct Float?
+  oilPct           Float?
+  vix              Float?
+  vixChangePct     Float?
+  createdAt DateTime @default(now())
+}
+
 model Notification {
   id        String   @id @default(cuid())
   type      String

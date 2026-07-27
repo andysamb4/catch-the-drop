@@ -8,17 +8,18 @@ export type DailyClose = { date: string; close: number };
 
 export type VixSnapshot = { level: number; changePct: number };
 
-// ^VIX via the same keyless chart API (Finnhub's free tier has no index data).
-// Last bar is the latest (possibly still-live) level; the bar before anchors
-// the day-over-day change. Used to put a "how scared is the market actually"
-// number next to a market-alert headline.
-export async function getVixSnapshot(): Promise<VixSnapshot | null> {
-  const res = await fetch(`${YAHOO_BASE}/%5EVIX?range=5d&interval=1d`, {
-    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
-    cache: "no-store",
-    // A hung upstream would otherwise burn the whole cron function budget.
-    signal: AbortSignal.timeout(10_000),
-  });
+// Latest (possibly still-live) level vs the prior daily bar, via the keyless
+// chart API. Shared by the VIX read and the overnight futures tape.
+async function getChangeSnapshot(symbol: string): Promise<VixSnapshot | null> {
+  const res = await fetch(
+    `${YAHOO_BASE}/${encodeURIComponent(symbol)}?range=5d&interval=1d`,
+    {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+      cache: "no-store",
+      // A hung upstream would otherwise burn the whole cron function budget.
+      signal: AbortSignal.timeout(10_000),
+    }
+  );
   if (!res.ok) return null;
 
   const data = await res.json().catch(() => null);
@@ -30,6 +31,36 @@ export async function getVixSnapshot(): Promise<VixSnapshot | null> {
   const level = valid[valid.length - 1];
   const prev = valid[valid.length - 2];
   return { level, changePct: ((level - prev) / prev) * 100 };
+}
+
+// ^VIX via the same keyless chart API (Finnhub's free tier has no index data).
+// Used to put a "how scared is the market actually" number next to a
+// market-alert headline.
+export async function getVixSnapshot(): Promise<VixSnapshot | null> {
+  return getChangeSnapshot("^VIX");
+}
+
+// CME futures trade nearly round the clock, so during the London/pre-US
+// morning the last bar is the live overnight session — the same "futures are
+// up X%" read a pre-market column opens with. Oil rides along as the
+// geopolitics/risk-sentiment barometer. Each leg fails independently to null.
+export type OvernightTape = {
+  spFuturesPct: number | null;
+  nasdaqFuturesPct: number | null;
+  oilPct: number | null;
+};
+
+export async function getOvernightTape(): Promise<OvernightTape> {
+  const [sp, nasdaq, oil] = await Promise.all([
+    getChangeSnapshot("ES=F"),
+    getChangeSnapshot("NQ=F"),
+    getChangeSnapshot("CL=F"),
+  ]);
+  return {
+    spFuturesPct: sp?.changePct ?? null,
+    nasdaqFuturesPct: nasdaq?.changePct ?? null,
+    oilPct: oil?.changePct ?? null,
+  };
 }
 
 export async function getYearOfDailyCloses(symbol: string): Promise<DailyClose[] | null> {

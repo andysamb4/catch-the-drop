@@ -54,6 +54,37 @@ Headlines:
 ${list}`;
 }
 
+export function dailyBriefPrompt(params: {
+  tape: string[];
+  headlines: Array<{ headline: string; source: string; summary: string }>;
+  earnings: string[];
+  positions: string[];
+  freshSignals: string[];
+}) {
+  const headlineList = params.headlines
+    .map((h) => `- [${h.source}] ${h.headline}${h.summary ? ` — ${h.summary}` : ""}`)
+    .join("\n");
+  const section = (label: string, lines: string[]) =>
+    `${label}:\n${lines.length ? lines.map((l) => `- ${l}`).join("\n") : "- none"}`;
+
+  return `Write the pre-US-open daily brief for a personal trading dashboard. The reader runs a small mean-reversion bot (buys multi-day drops, shorts multi-day climbs, ~2.5% take-profit, holds days not weeks) and scans this on one phone card — punchy and scannable, not prose.
+
+${section("Overnight tape", params.tape)}
+
+${section("Our open bot positions", params.positions)}
+
+${section("Fresh signals from last night's scan (orders may already be queued)", params.freshSignals)}
+
+${section("Upcoming earnings among names we hold or watch", params.earnings)}
+
+Overnight headlines (last ~18h, newest first):
+${headlineList || "- none"}
+
+Output EXACTLY this shape, nothing before or after it, no markdown headers or asterisks:
+Line 1: today's market stance in max 10 words, leading with the read (e.g. "Risk-on open; easing oil gives longs a tailwind").
+Then 3-5 lines, each starting with "- ", each a single clause of max 16 words, covering in order: what is driving the tape today; the week's scheduled catalysts (Fed, CPI, big earnings) if any; earnings dates that hit OUR names, flagging any open position or fresh signal that rides into a report; how the backdrop reads for our open positions overall. Skip any bullet with nothing worth saying — never pad. Do not repeat raw numbers already shown on the card (futures/VIX percentages); interpret them instead.`;
+}
+
 export function yoyoHunterPrompt(params: {
   symbol: string;
   yoyoScore: number;

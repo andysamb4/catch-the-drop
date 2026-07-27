@@ -41,6 +41,41 @@ export async function getGeneralNews(): Promise<FinnhubNewsItem[]> {
   );
 }
 
+// /calendar/earnings is on the free tier: confirmed report dates for a date
+// range. Feeds the daily brief's "which of our names report soon" check.
+export type FinnhubEarningsEvent = {
+  date: string; // YYYY-MM-DD
+  symbol: string;
+  hour: string; // "bmo" (before open) | "amc" (after close) | "dmh" | ""
+};
+
+export async function getEarningsCalendar(
+  from: string,
+  to: string
+): Promise<FinnhubEarningsEvent[]> {
+  const apiKey = process.env.FINNHUB_API_KEY;
+  if (!apiKey) throw new Error("FINNHUB_API_KEY is not set");
+
+  const res = await fetch(
+    `${FINNHUB_BASE}/calendar/earnings?from=${from}&to=${to}&token=${apiKey}`,
+    {
+      cache: "no-store",
+      // A hung upstream would otherwise burn the whole cron function budget.
+      signal: AbortSignal.timeout(10_000),
+    }
+  );
+  if (!res.ok) return [];
+
+  const data = (await res.json().catch(() => null)) as {
+    earningsCalendar?: Array<Partial<FinnhubEarningsEvent>>;
+  } | null;
+  if (!Array.isArray(data?.earningsCalendar)) return [];
+
+  return data.earningsCalendar
+    .filter((e) => typeof e?.symbol === "string" && typeof e?.date === "string")
+    .map((e) => ({ date: e.date as string, symbol: e.symbol as string, hour: e.hour ?? "" }));
+}
+
 export async function getQuote(symbol: string): Promise<FinnhubQuote | null> {
   const apiKey = process.env.FINNHUB_API_KEY;
   if (!apiKey) throw new Error("FINNHUB_API_KEY is not set");

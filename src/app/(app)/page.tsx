@@ -9,6 +9,7 @@ import { SignalCard } from "@/components/signals/signal-card";
 import { ComingSoon } from "@/components/layout/coming-soon";
 import { PriceGapBanner } from "@/components/notifications/price-gap-banner";
 import { MarketAlertBanner } from "@/components/notifications/market-alert-banner";
+import { DailyBriefCard } from "@/components/home/daily-brief-card";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,7 @@ export default async function HomePage() {
     <div className="space-y-4">
       <MarketAlertBanner />
       <PriceGapBanner />
+      <DailyBriefCard />
 
       <div className="grid grid-cols-2 gap-2.5">
         <div className="rounded-2xl bg-foreground p-3.5 text-background">

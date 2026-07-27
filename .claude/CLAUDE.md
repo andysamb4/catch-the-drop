@@ -37,7 +37,12 @@ sub-daily schedule in `vercel.json` fails the entire deploy.
 ### Cron Jobs
 Scheduled tasks are configured in `vercel.json`:
 - `GET /api/cron/signals` — 9:05 PM UTC weekdays (streak detection + auto-trade order placement)
-- `GET /api/cron/morning-brief` — 12:15 PM UTC weekdays (AI commentary)
+- `GET /api/cron/morning-brief` — 12:15 PM UTC weekdays (per-signal AI
+  commentary, the major-events-only MarketAlert, and the everyday DailyBrief —
+  a pre-US-open digest of futures/oil/VIX tape (Yahoo), overnight headlines
+  with summaries (Finnhub), the week's earnings hitting watched/held names
+  (Finnhub `/calendar/earnings`, free tier), and open bot positions; rendered
+  as the home-page "Morning brief" card, `src/lib/daily-brief.ts`)
 - `GET /api/cron/trade-sync` — 8:45 PM UTC weekdays (fill/close reconciliation)
 
 Because Hobby crons are once-daily, close detection polls via: trade-sync

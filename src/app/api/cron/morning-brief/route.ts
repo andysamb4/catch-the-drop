@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { generateText, AIError } from "@/lib/ai/client";
 import { morningBriefPrompt } from "@/lib/ai/prompts";
 import { generateMarketAlert, formatMarketContext } from "@/lib/market-alert";
+import { generateDailyBrief } from "@/lib/daily-brief";
 
 // One sequential LLM call per fresh signal plus the market-alert check: a busy
 // day (manual rescan → 8+ fresh signals) overruns 60s, so take the full budget.
@@ -27,11 +28,22 @@ export async function GET(request: NextRequest) {
     marketAlertStatus = `error: ${err instanceof AIError ? err.message : (err as Error).message}`;
   }
 
+  // The everyday digest (tape, catalysts, earnings, positions) — isolated the
+  // same way: a Yahoo/Finnhub/LLM hiccup must not block signal commentary.
+  let dailyBriefStatus: string;
+  try {
+    const run = await generateDailyBrief();
+    dailyBriefStatus = run.status;
+  } catch (err) {
+    dailyBriefStatus = `error: ${err instanceof AIError ? err.message : (err as Error).message}`;
+  }
+
   const latest = await prisma.signal.findFirst({ orderBy: { date: "desc" } });
   if (!latest) {
     return NextResponse.json({
       ranAt: new Date().toISOString(),
       marketAlert: marketAlertStatus,
+      dailyBrief: dailyBriefStatus,
       results: [],
       note: "No signals yet.",
     });
@@ -68,6 +80,7 @@ export async function GET(request: NextRequest) {
     ranAt: new Date().toISOString(),
     briefDate: latest.date,
     marketAlert: marketAlertStatus,
+    dailyBrief: dailyBriefStatus,
     results,
   });
 }
