@@ -69,7 +69,7 @@ export default async function HomePage() {
 
       {scan.lastScanAt ? (
         <p className="text-sm text-muted-foreground">
-          Fresh signals from the last scan &middot; ran {formatAgo(scan.lastScanAt)}
+          Fresh BUY signals from the last scan &middot; ran {formatAgo(scan.lastScanAt)}
           {scan.scanned < scan.total ? (
             <span className="font-medium text-destructive">
               {" "}
@@ -81,15 +81,15 @@ export default async function HomePage() {
         </p>
       ) : (
         <p className="text-sm text-muted-foreground">
-          Fresh signals from the last nightly scan.
+          Fresh BUY signals from the last nightly scan.
         </p>
       )}
 
       {signals.length === 0 ? (
         <ComingSoon
           icon={Zap}
-          title="No fresh signals today"
-          description="The nightly scan runs weekday evenings after market close. Check back tomorrow, or browse the full history."
+          title="No fresh BUY signals today"
+          description="The nightly scan runs weekday evenings after market close, looking for 3+ consecutive down days. Check back tomorrow, or browse the full history."
         />
       ) : (
         <div className="space-y-3">

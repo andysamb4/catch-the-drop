@@ -377,9 +377,16 @@ export function SandboxDashboard({ refreshMs }: { refreshMs: number }) {
             </section>
           )}
 
-          {/* Open positions */}
+          {/* Open positions. The bot is long-only since 4 Aug 2026, so any SHORT
+              here predates the switch — it is left alone to run to its TP/SL. */}
           <section className="space-y-2">
             <h2 className="text-sm font-semibold">Open positions (bot)</h2>
+            {data.openPositions.some((p) => p.direction === "SHORT") && (
+              <p className="text-xs text-muted-foreground">
+                The bot is long-only since 4 Aug 2026. Open shorts predate that switch and are
+                left to run to their take-profit or stop — no new shorts are opened.
+              </p>
+            )}
             {data.openPositions.length === 0 ? (
               <p className="rounded-2xl border border-dashed border-amber-500/40 p-4 text-sm text-muted-foreground">
                 No open bot positions.

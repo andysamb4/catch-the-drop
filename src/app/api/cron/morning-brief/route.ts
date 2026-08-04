@@ -38,19 +38,25 @@ export async function GET(request: NextRequest) {
     dailyBriefStatus = `error: ${err instanceof AIError ? err.message : (err as Error).message}`;
   }
 
-  const latest = await prisma.signal.findFirst({ orderBy: { date: "desc" } });
+  // BUY-only throughout: the scan is long-only, and any SHORT row still sitting
+  // without commentary is pre-switch history that must not get fresh short-side
+  // guidance written onto it now.
+  const latest = await prisma.signal.findFirst({
+    where: { type: "BUY" },
+    orderBy: { date: "desc" },
+  });
   if (!latest) {
     return NextResponse.json({
       ranAt: new Date().toISOString(),
       marketAlert: marketAlertStatus,
       dailyBrief: dailyBriefStatus,
       results: [],
-      note: "No signals yet.",
+      note: "No BUY signals yet.",
     });
   }
 
   const freshSignals = await prisma.signal.findMany({
-    where: { date: latest.date, aiCommentary: null },
+    where: { date: latest.date, type: "BUY", aiCommentary: null },
     include: { watchlistItem: true },
   });
 
@@ -62,7 +68,6 @@ export async function GET(request: NextRequest) {
         morningBriefPrompt({
           symbol: signal.symbol,
           name: signal.watchlistItem.name,
-          type: signal.type,
           streakLength: signal.streakLength,
           cumulativeMovePct: signal.cumulativeMovePct,
           marketContext,

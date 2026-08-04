@@ -75,12 +75,18 @@ async function withSizing(signals: SignalWithTicker[]): Promise<SignalDTO[]> {
 // "Today's" signals really means "the most recent scan's signals" — the nightly cron
 // runs late (21:05 UTC), so a literal calendar-date filter would show nothing all
 // morning until that evening's run, right when the morning brief most needs data.
+// BUY-only, on both the date probe and the fetch: the strategy is long-only, so a
+// legacy SHORT row must not resurface as a "fresh signal" (nor set the date the
+// fresh list is anchored to). History stays browsable on /signals.
 export async function getLatestSignals(): Promise<SignalDTO[]> {
-  const latest = await prisma.signal.findFirst({ orderBy: { date: "desc" } });
+  const latest = await prisma.signal.findFirst({
+    where: { type: "BUY" },
+    orderBy: { date: "desc" },
+  });
   if (!latest) return [];
 
   const signals = await prisma.signal.findMany({
-    where: { date: latest.date },
+    where: { date: latest.date, type: "BUY" },
     include: { watchlistItem: true },
     orderBy: { createdAt: "desc" },
   });

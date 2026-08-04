@@ -33,7 +33,9 @@ export type SignalOrderInput = {
   signalId: string;
   symbol: string;
   instrumentId: number;
-  type: "BUY" | "SHORT";
+  // BUY only — the bot is long-only (see LONG_ONLY). Shorts are not expressible
+  // here, so no caller can queue one even by mistake.
+  type: "BUY";
   // Latest close from the detection series — the entry estimate the TP is
   // anchored to until the real fill price is known (see reconcile).
   lastClose: number;
@@ -173,7 +175,16 @@ export async function executeSignalOrder(
   mode: EtoroMode,
   input: SignalOrderInput
 ): Promise<SignalOrderOutcome> {
-  const direction = input.type === "BUY" ? "LONG" : "SHORT";
+  // Long-only: a BUY opens a long and nothing opens a short. The runtime check
+  // backstops the type for any caller replaying a pre-switch SHORT signal row.
+  if (input.type !== "BUY") {
+    const detail = "long-only: SHORT signals are not traded";
+    await logBotEvent(mode, "ORDER_SKIPPED", `${input.symbol}: ${detail}`, {
+      symbol: input.symbol,
+    });
+    return { symbol: input.symbol, outcome: "skipped", detail };
+  }
+  const direction = "LONG" as const;
 
   if (!isAutoTradeEnabled()) {
     return { symbol: input.symbol, outcome: "skipped", detail: "auto-trade disabled" };
@@ -284,6 +295,9 @@ export type ReconcileResult = {
 //                      reason is inferred from closeRate vs the TP target.
 // (eToro's WebSocket "private" topic would push these events in real time, but
 // serverless can't hold the connection — polling is the documented fallback.)
+// Direction-agnostic on purpose: SHORT positions opened before the long-only
+// switch keep reconciling here untouched until their TP/SL or a manual close
+// takes them out.
 export async function reconcilePositions(mode: EtoroMode): Promise<ReconcileResult> {
   const tracked = await prisma.botPosition.findMany({
     where: { mode, status: { in: ["PENDING", "OPEN"] } },

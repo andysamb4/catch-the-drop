@@ -14,7 +14,7 @@ import {
   reconcilePositions,
   type SignalOrderOutcome,
 } from "@/lib/auto-trade";
-import { getEtoroMode, strategyConfig } from "@/lib/trading-config";
+import { LONG_ONLY, getEtoroMode, strategyConfig } from "@/lib/trading-config";
 import type { WatchlistItem } from "@/generated/prisma/client";
 
 export const maxDuration = 300;
@@ -39,7 +39,7 @@ type TickerResult = {
   tradeInput?: {
     signalId: string;
     instrumentId: number;
-    type: "BUY" | "SHORT";
+    type: "BUY";
     lastClose: number;
     strategy: string;
   };
@@ -135,27 +135,35 @@ async function scanTicker(
     detectionBars = barsAsc;
   }
 
-  const detected = detectStreakSignal(detectionBars, minSignalMovePct);
+  let signal = detectStreakSignal(detectionBars, minSignalMovePct);
+  let note: string | undefined;
+
+  // Long-only (see LONG_ONLY): an up-streak is still detected — the same engine
+  // backs the backtest, which can still simulate shorts — but it is dropped here,
+  // before anything is written, so no new SHORT signal reaches the signals list,
+  // the morning brief or the order pass. Existing SHORT rows are untouched.
+  if (LONG_ONLY && signal?.type === "SHORT") {
+    signal = null;
+    note = "SHORT streak ignored (long-only)";
+  }
 
   // For etf-mr, the streak is only a valid signal if it agrees with the long-SMA
-  // trend (buy dips in uptrends, fade rallies in downtrends). A blocked streak or
-  // one without enough history to judge the trend produces no signal at all — so
-  // "etf-mr produces signals only where the trend gate passes". core skips this.
-  let signal = detected;
-  let note: string | undefined;
-  if (detected && cfg.trendFilter) {
+  // trend (buy dips in uptrends). A blocked streak or one without enough history
+  // to judge the trend produces no signal at all — so "etf-mr produces signals
+  // only where the trend gate passes". core skips this.
+  if (signal && cfg.trendFilter) {
     const gate = trendGate(
       detectionBars.map((b) => b.close),
-      detected.type,
+      signal.type,
       cfg.smaPeriod,
       cfg.minTrendBars
     );
     if (!gate) {
-      signal = null;
       note = "trend-gate: insufficient history";
-    } else if (!gate.passed) {
       signal = null;
-      note = `trend-gate blocked ${detected.type} (SMA${gate.periodUsed})`;
+    } else if (!gate.passed) {
+      note = `trend-gate blocked ${signal.type} (SMA${gate.periodUsed})`;
+      signal = null;
     } else {
       note = `trend-gate passed (SMA${gate.periodUsed})`;
     }
@@ -180,20 +188,17 @@ async function scanTicker(
         strategy: ticker.strategy,
       },
     });
-    // Only eToro-mapped tickers are executable; Finnhub-only tickers stay signal-only.
-    // Longs-only strategies record the SHORT signal above but never queue an order
-    // for it, so no etf-mr SHORT orders appear while the switch is on.
-    const suppressedShort = cfg.longsOnly && signal.type === "SHORT";
-    if (ticker.etoroInstrumentId && !suppressedShort) {
+    // Only eToro-mapped tickers are executable; Finnhub-only tickers stay
+    // signal-only. The BUY check is the second half of the long-only rule: the
+    // order pass can only ever be handed a long.
+    if (ticker.etoroInstrumentId && signal.type === "BUY") {
       tradeInput = {
         signalId: signalRow.id,
         instrumentId: ticker.etoroInstrumentId,
-        type: signal.type,
+        type: "BUY",
         lastClose: detectionBars[detectionBars.length - 1].close,
         strategy: ticker.strategy,
       };
-    } else if (suppressedShort) {
-      note = note ? `${note}; SHORT not traded (longs-only)` : "SHORT not traded (longs-only)";
     }
   }
 

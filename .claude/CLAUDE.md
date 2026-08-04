@@ -79,17 +79,45 @@ Env config (`src/lib/trading-config.ts`), all optional:
 - `TRADE_SIZE_USD` — default 100; only used when `BOT_BANKROLL_USD=0`.
 - `TAKE_PROFIT_PCT` — default 0.025 (2.5% favourable move, server-side TP).
 - `STOP_LOSS_PCT` — unset = no stop-loss on LONGS (set e.g. 0.05 to enable both ways).
-- `SHORT_STOP_LOSS_PCT` — default 0.10. eToro REQUIRES a stopLossRate on every
-  short (`sellShort`) order, so shorts always carry a stop: `STOP_LOSS_PCT` if
-  set, else this wide emergency stop. Discovered 2026-07-13 — shorts had
-  silently failed since launch (`transaction: "sell"` is unsupported by the
-  API; shorts open as `sellShort`).
+- `SHORT_STOP_LOSS_PCT` — default 0.10. Legacy since the long-only switch: no new
+  shorts are placed, but eToro REQUIRES a stopLossRate on every short
+  (`sellShort`) order, so the shorts still open from before carry a stop —
+  `STOP_LOSS_PCT` if set, else this wide emergency stop. Discovered 2026-07-13:
+  shorts had silently failed since launch (`transaction: "sell"` is unsupported
+  by the API; shorts open as `sellShort`).
 - `SANDBOX_REFRESH_MS` — default 7200000 (sandbox page auto-refresh, 2 h).
 
 `/sandbox` page + `GET /api/sandbox` are hard-pinned to eToro's `/demo/`
 endpoints regardless of `ETORO_MODE` — they can never touch real-money data.
 Note: trading needs eToro keys with trade permission; the original keys were
 read-only (see memory: etoro-api-integration).
+
+## Long-only (since 2026-08-04)
+
+**The strategy takes the long side only.** `LONG_ONLY` in `trading-config.ts` is
+the switch — deliberately a code constant, not an env var. Evidence: longs hit
+the server-side take-profit reliably, while the two manually-closed shorts were
+the worst trades on record (-$54 each, PLTR and MSFT).
+
+What it means, end to end:
+- The nightly scan still *detects* up-streaks (`detectStreakSignal` is shared
+  with the backtest) but drops them before any write — **no new SHORT `Signal`
+  row is ever created**, and the run reports `SHORT streak ignored (long-only)`.
+- `SignalOrderInput.type` is `"BUY"` — a short order is not expressible;
+  `executeSignalOrder` also refuses one at runtime.
+- The SHORT arms of `takeProfitRateFor` / `stopLossRateFor` / `inferCloseReason`
+  and `placeMarketOrder`'s `sellShort` path stay: **legacy open shorts still
+  reconcile** and still get their TP re-anchored. The bot never closes them.
+- Nothing is deleted. Historical SHORT signals, trades and bot positions stay in
+  the DB (`SignalType.SHORT` and `TradeDirection.SHORT` remain in the schema) and
+  stay browsable: /signals defaults to BUY with archived shorts one filter away,
+  Performance defaults to long-only with a Long+short / Short-only filter, and
+  the Backtest tab has an "Include SHORT trades" checkbox for A/B comparison.
+- AI prompts (`ai/prompts.ts`) are long-only: "Why this fired" takes no direction
+  and must never suggest fading/shorting.
+
+To reverse: flip `LONG_ONLY` to `false`, then follow the type errors — they land
+exactly on the sites that must widen back to `"BUY" | "SHORT"`.
 
 ## Strategies (champion vs challenger)
 
@@ -98,13 +126,13 @@ that flows watchlist → signal → position. Two strategies run in parallel on
 demo, isolated for comparison (see `strategyConfig()` in `trading-config.ts`):
 
 - **`core`** (champion, default) — the original single-stock streak bot. 90-day
-  history, no trend filter, trades both directions. Every pre-existing row
-  defaults to `core`; its behaviour is unchanged.
+  history, no trend filter. Every pre-existing row defaults to `core`.
 - **`etf-mr`** (challenger) — the same `detectStreakSignal` engine over a liquid
   ETF universe, gated by a long-SMA **trend filter** (BUY only when price is
-  above its SMA, SHORT only below) and run **longs-only** by default on its own
-  isolated compounding bankroll. Uses a 260-day history window so the SMA200 has
-  real data. SHORT signals are still recorded but not traded while longs-only.
+  above its SMA) on its own isolated compounding bankroll. Uses a 260-day history
+  window so the SMA200 has real data.
+
+Both are long-only (see above); direction is no longer a per-strategy setting.
 
 `strategy` is orthogonal to `mode` (demo/real) — never overload one for the
 other. The `/sandbox` page shows a champion-vs-challenger scorecard (equity,
@@ -113,7 +141,6 @@ realized P&L, win rate, exposure per strategy).
 Challenger env config (all optional, `trading-config.ts`):
 - `ETF_MR_BANKROLL_USD` — default 5000; isolated pool, never draws from core's.
 - `ETF_MR_MAX_POSITIONS` — default 10.
-- `ETF_MR_LONGS_ONLY` — default `true`; set `false` to also trade SHORT.
 - `ETF_MR_SMA_PERIOD` — default 200. `ETF_MR_MIN_TREND_BARS` — default 50 (below
   this, no signal rather than trade blind). `ETF_MR_HISTORY_WINDOW_DAYS` — 260.
 

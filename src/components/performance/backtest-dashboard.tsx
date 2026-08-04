@@ -41,6 +41,10 @@ export function BacktestDashboard({ tickers, minSignalMovePct, positionSizeUsd }
   const [holdingPeriodDays, setHoldingPeriodDays] = useState(3);
   const [tickerFilter, setTickerFilter] = useState("all");
   const [sectorFilter, setSectorFilter] = useState("all");
+  // Live trading is long-only, so the simulation matches it by default. The
+  // engine still generates both directions — toggling this back on is how you
+  // measure what dropping shorts actually cost or saved.
+  const [includeShorts, setIncludeShorts] = useState(false);
 
   const sectors = useMemo(
     () => Array.from(new Set(tickers.map((t) => t.sector).filter((s): s is string => !!s))).sort(),
@@ -77,12 +81,20 @@ export function BacktestDashboard({ tickers, minSignalMovePct, positionSizeUsd }
       allTrades.filter((t) => {
         const matchesTicker = tickerFilter === "all" || t.symbol === tickerFilter;
         const matchesSector = sectorFilter === "all" || t.sector === sectorFilter;
-        return matchesTicker && matchesSector;
+        const matchesDirection = includeShorts || t.direction === "LONG";
+        return matchesTicker && matchesSector && matchesDirection;
       }),
-    [allTrades, tickerFilter, sectorFilter]
+    [allTrades, tickerFilter, sectorFilter, includeShorts]
+  );
+
+  const shortCount = useMemo(
+    () => allTrades.filter((t) => t.direction === "SHORT").length,
+    [allTrades]
   );
 
   const stats = useMemo(() => computeBacktestStats(filteredTrades), [filteredTrades]);
+
+  const directionPanels: Array<"LONG" | "SHORT"> = includeShorts ? ["LONG", "SHORT"] : ["LONG"];
 
   if (totalBars === 0) {
     return (
@@ -148,8 +160,22 @@ export function BacktestDashboard({ tickers, minSignalMovePct, positionSizeUsd }
               />
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            <input
+              id="includeShorts"
+              type="checkbox"
+              checked={includeShorts}
+              onChange={(e) => setIncludeShorts(e.target.checked)}
+              className="h-4 w-4 shrink-0 accent-primary"
+            />
+            <Label htmlFor="includeShorts" className="font-normal">
+              Include SHORT trades ({shortCount})
+            </Label>
+          </div>
           <p className="text-xs text-muted-foreground">
-            Filtered on Settings&apos; minimum signal move: {minSignalMovePct}%
+            Filtered on Settings&apos; minimum signal move: {minSignalMovePct}% &middot; live
+            trading is long-only since 4 Aug 2026, so the simulation defaults to longs; tick the
+            box to see what the short side would have added.
           </p>
         </CardContent>
       </Card>
@@ -230,10 +256,12 @@ export function BacktestDashboard({ tickers, minSignalMovePct, positionSizeUsd }
 
           <Card className="rounded-2xl">
             <CardHeader>
-              <CardTitle className="text-base">Long vs short</CardTitle>
+              <CardTitle className="text-base">
+                {includeShorts ? "Long vs short" : "Long only"}
+              </CardTitle>
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-4">
-              {(["LONG", "SHORT"] as const).map((direction) => {
+              {directionPanels.map((direction) => {
                 const d = stats.byDirection[direction];
                 return (
                   <div key={direction} className="space-y-1">

@@ -9,7 +9,8 @@ export const AI_TOOLS: ToolDefinition[] = [
   },
   {
     name: "get_signals",
-    description: "Get recent 3-day BUY (drop) / SHORT (climb) signals, optionally filtered by ticker.",
+    description:
+      "Get recent 3-day BUY (drop) signals, optionally filtered by ticker. May also return archived SHORT signals from before the strategy went long-only on 4 Aug 2026.",
     parameters: {
       type: "object",
       properties: {

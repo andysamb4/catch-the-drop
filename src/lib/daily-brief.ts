@@ -75,7 +75,9 @@ export async function generateDailyBrief(): Promise<DailyBriefRun> {
       orderBy: { openedAt: "asc" },
     }),
     prisma.watchlistItem.findMany({ where: { active: true }, select: { symbol: true } }),
-    prisma.signal.findFirst({ orderBy: { date: "desc" } }),
+    // BUY-only: the scan is long-only, so a pre-switch SHORT row must never
+    // anchor the "fresh signals" date or appear in the brief as actionable.
+    prisma.signal.findFirst({ where: { type: "BUY" }, orderBy: { date: "desc" } }),
   ]);
 
   const cutoff = Date.now() / 1000 - LOOKBACK_HOURS * 3600;
@@ -91,7 +93,7 @@ export async function generateDailyBrief(): Promise<DailyBriefRun> {
   const signalMaxAge = FRESH_SIGNAL_MAX_AGE_DAYS * 24 * 3600 * 1000;
   const freshSignals =
     latestSignal && today.getTime() - latestSignal.date.getTime() <= signalMaxAge
-      ? await prisma.signal.findMany({ where: { date: latestSignal.date } })
+      ? await prisma.signal.findMany({ where: { date: latestSignal.date, type: "BUY" } })
       : [];
 
   const heldSymbols = new Set(positions.map((p) => p.symbol));

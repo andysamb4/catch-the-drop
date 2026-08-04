@@ -28,18 +28,33 @@ function fmtPct(v: number) {
 
 export function PerformanceDashboard({ trades }: { trades: TradeDTO[] }) {
   const [sector, setSector] = useState("all");
+  // The strategy is long-only going forward, so the headline stats are long-only
+  // too — a handful of legacy shorts would otherwise keep dragging on numbers
+  // that describe how the current strategy is doing. The shorts stay one click
+  // away for reference, and none of the trade data is filtered out of the DB.
+  const [direction, setDirection] = useState("LONG");
 
   const sectors = useMemo(
     () => Array.from(new Set(trades.map((t) => t.sector).filter((s): s is string => !!s))).sort(),
     [trades]
   );
 
+  const shortCount = useMemo(() => trades.filter((t) => t.direction === "SHORT").length, [trades]);
+
   const filtered = useMemo(
-    () => (sector === "all" ? trades : trades.filter((t) => t.sector === sector)),
-    [trades, sector]
+    () =>
+      trades.filter(
+        (t) =>
+          (sector === "all" || t.sector === sector) &&
+          (direction === "all" || t.direction === direction)
+      ),
+    [trades, sector, direction]
   );
 
   const stats = useMemo(() => computePerformanceStats(filtered), [filtered]);
+
+  const directionPanels: Array<"LONG" | "SHORT"> =
+    direction === "LONG" ? ["LONG"] : direction === "SHORT" ? ["SHORT"] : ["LONG", "SHORT"];
 
   if (trades.length === 0) {
     return (
@@ -53,20 +68,39 @@ export function PerformanceDashboard({ trades }: { trades: TradeDTO[] }) {
 
   return (
     <div className="space-y-4">
-      {sectors.length > 0 && (
-        <Select value={sector} onValueChange={(value) => setSector(value ?? "all")}>
+      <div className="flex gap-2">
+        {sectors.length > 0 && (
+          <Select value={sector} onValueChange={(value) => setSector(value ?? "all")}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="All sectors" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All sectors</SelectItem>
+              {sectors.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <Select value={direction} onValueChange={(value) => setDirection(value ?? "LONG")}>
           <SelectTrigger className="w-full">
-            <SelectValue placeholder="All sectors" />
+            <SelectValue placeholder="Long only" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All sectors</SelectItem>
-            {sectors.map((s) => (
-              <SelectItem key={s} value={s}>
-                {s}
-              </SelectItem>
-            ))}
+            <SelectItem value="LONG">Long only</SelectItem>
+            <SelectItem value="all">Long + short</SelectItem>
+            <SelectItem value="SHORT">Short only (archived)</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+
+      {direction !== "LONG" && shortCount > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Includes {shortCount} short {shortCount === 1 ? "trade" : "trades"} from before the
+          long-only switch (4 Aug 2026) — kept for reference, not part of the current strategy.
+        </p>
       )}
 
       <div className="grid grid-cols-2 gap-3">
@@ -116,15 +150,17 @@ export function PerformanceDashboard({ trades }: { trades: TradeDTO[] }) {
 
       <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle className="text-base">Long vs short</CardTitle>
+          <CardTitle className="text-base">
+            {directionPanels.length === 2 ? "Long vs short" : directionPanels[0] === "LONG" ? "Long only" : "Short (archived)"}
+          </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-4">
-          {(["LONG", "SHORT"] as const).map((direction) => {
-            const d = stats.byDirection[direction];
+          {directionPanels.map((panel) => {
+            const d = stats.byDirection[panel];
             return (
-              <div key={direction} className="space-y-1">
+              <div key={panel} className="space-y-1">
                 <p className="text-xs text-muted-foreground">
-                  {direction === "LONG" ? "Long" : "Short"} ({d.count})
+                  {panel === "LONG" ? "Long" : "Short"} ({d.count})
                 </p>
                 <p className={`text-lg font-semibold ${d.avgPL != null && d.avgPL >= 0 ? "text-primary" : d.avgPL != null ? "text-destructive" : ""}`}>
                   {d.avgPL != null ? fmtMoney(d.avgPL) : "—"}

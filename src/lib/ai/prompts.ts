@@ -1,13 +1,17 @@
-export const CHAT_SYSTEM_PROMPT = `You are the trading assistant inside "3-Day Drop & Climb," a personal app that tracks a stock watchlist for 3-consecutive-day drop (BUY) and 3-consecutive-day climb (SHORT) signals, and logs the user's manually-executed eToro trades.
+export const CHAT_SYSTEM_PROMPT = `You are the trading assistant inside "3-Day Drop & Climb," a personal app that tracks a stock watchlist for 3-consecutive-day drop (BUY) signals and logs the user's manually-executed eToro trades.
+
+The strategy is LONG-ONLY as of 4 Aug 2026: only BUY signals are generated and only long positions are opened. Older SHORT signals and short trades are still in the data as history — analyse them if asked, but never suggest opening a new short.
 
 You have tools to look up the user's watchlist, signals, trades, and accumulated price history. Use them whenever a question depends on current data — never guess numbers.
 
 Be concise and specific; lead with the number or verdict, then the reasoning. This is not financial advice, and you should say so if the user seems to be asking you to make a final call rather than reason about the strategy's own data.`;
 
+// BUY signals only — the scan is long-only, so this never has to reason about a
+// short, and takes no direction argument. Existing SHORT rows keep whatever
+// commentary they were written with before the switch.
 export function morningBriefPrompt(signal: {
   symbol: string;
   name: string;
-  type: "BUY" | "SHORT";
   streakLength: number;
   cumulativeMovePct: number;
   marketContext?: string;
@@ -15,18 +19,18 @@ export function morningBriefPrompt(signal: {
   return `Write commentary on this fresh signal for a personal trading journal. This gets scanned in a small card on a dashboard, not read as prose — it must be punchy and scannable, not a paragraph.
 
 Ticker: ${signal.symbol} (${signal.name})
-Signal: ${signal.type} after a ${signal.streakLength}-day streak, ${signal.cumulativeMovePct.toFixed(1)}% cumulative move.
+Signal: BUY after a ${signal.streakLength}-day down streak, ${signal.cumulativeMovePct.toFixed(1)}% cumulative move.
 
-The strategy is mean-reversion: BUY signals bet on a bounce after a drop, SHORT signals bet on a pullback after a climb. Judge whether this move looks like plausible mean-reversion noise or a sign of a stronger trend that could work against the bet.
+The strategy is long-only mean-reversion: a BUY bets on a bounce after a multi-day drop. Judge whether this drop looks like plausible mean-reversion noise or the start of a stronger downtrend that would keep going against the long. Shorting is not an option — never suggest fading, shorting or any short-side action; the only calls available are buy now, wait, size down, or skip.
 
 Output EXACTLY this shape, nothing before or after it, no markdown headers or asterisks:
-Line 1: the verdict/action, max 8 words, plain statement (e.g. "Bounce looks likely" / "Fade this with a tight stop" / "Sit tight, this is noise" / "Wait for confirmation before sizing up"). Lead with the call — never bury it.
+Line 1: the verdict/action, max 8 words, plain statement (e.g. "Bounce looks likely" / "Buy small, downtrend risk" / "Sit tight, this is noise" / "Wait for confirmation before sizing up"). Lead with the call — never bury it.
 Then 2-3 lines, each starting with "- ", each a single short clause (max 14 words) giving one distinct reason. Do not repeat the raw numbers back verbatim — add perspective, not restatement.${
     signal.marketContext
       ? `
 
 Overnight market alert: ${signal.marketContext}
-Weigh whether this streak is stock-specific or part of the market-wide move. If the whole market is being driven by this event, the drop/climb carries no ${signal.symbol}-specific information to revert — the bet becomes a macro bet with fatter tails, and one bullet should temper conviction accordingly (smaller size or waiting a day are valid calls).`
+Weigh whether this streak is stock-specific or part of the market-wide move. If the whole market is being driven by this event, the drop carries no ${signal.symbol}-specific information to revert — the bet becomes a macro bet with fatter tails, and one bullet should temper conviction accordingly (smaller size or waiting a day are valid calls).`
       : ""
   }`;
 }
@@ -67,7 +71,7 @@ export function dailyBriefPrompt(params: {
   const section = (label: string, lines: string[]) =>
     `${label}:\n${lines.length ? lines.map((l) => `- ${l}`).join("\n") : "- none"}`;
 
-  return `Write the pre-US-open daily brief for a personal trading dashboard. The reader runs a small mean-reversion bot (buys multi-day drops, shorts multi-day climbs, ~2.5% take-profit, holds days not weeks) and scans this on one phone card — punchy and scannable, not prose.
+  return `Write the pre-US-open daily brief for a personal trading dashboard. The reader runs a small long-only mean-reversion bot (buys multi-day drops, ~2.5% take-profit, holds days not weeks; it never shorts) and scans this on one phone card — punchy and scannable, not prose.
 
 ${section("Overnight tape", params.tape)}
 
@@ -91,7 +95,7 @@ export function yoyoHunterPrompt(params: {
   months: number;
   cumulativeReturnPct: number;
 }) {
-  return `Analyze whether ${params.symbol} fits a 3-day mean-reversion (drop-then-bounce / climb-then-pullback) strategy, based on ${params.months} months of daily closes.
+  return `Analyze whether ${params.symbol} fits a long-only 3-day mean-reversion (drop-then-bounce) strategy, based on ${params.months} months of daily closes. Only the long side is traded — a name that only oscillates well on the downside is not a fit.
 
 Computed yo-yo score (count of >2% zigzag reversals over the period): ${params.yoyoScore}.
 Cumulative return over the period: ${params.cumulativeReturnPct.toFixed(1)}%.

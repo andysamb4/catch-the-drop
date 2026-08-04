@@ -29,13 +29,6 @@ function envNumber(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-// Unset/empty => fallback; only the exact string "true"/"false" flips it.
-function envBool(name: string, fallback: boolean): boolean {
-  const raw = process.env[name];
-  if (raw == null || raw === "") return fallback;
-  return raw === "true";
-}
-
 // Fixed cash size of each bot trade, in USD. Only used when bankroll sizing
 // is disabled (BOT_BANKROLL_USD=0).
 export const TRADE_SIZE_USD = envNumber("TRADE_SIZE_USD", 100);
@@ -74,6 +67,20 @@ export const SHORT_STOP_LOSS_PCT = envNumber("SHORT_STOP_LOSS_PCT", 0.1);
 // Sandbox page auto-refresh interval (2 hours).
 export const SANDBOX_REFRESH_MS = envNumber("SANDBOX_REFRESH_MS", 7_200_000);
 
+// --- Direction policy -----------------------------------------------------
+// Long-only since 2026-08-04, on live + sandbox evidence: longs reached the
+// server-side take-profit reliably, while the two manually-closed shorts were
+// the worst trades on record (-$54 each, PLTR and MSFT). Deliberately not an
+// env knob — it is a strategy decision, not a tuning parameter.
+//
+// Scope: no SHORT signal is recorded by the nightly scan and no short order is
+// ever placed. Everything already in the database (SHORT signals, trades, bot
+// positions) is preserved and still rendered, and the SHORT branches further
+// down this file stay live because open legacy shorts still reconcile and
+// still need their TP re-anchored. The backtest can also still simulate shorts
+// on demand — see BacktestDashboard's "include legacy shorts" toggle.
+export const LONG_ONLY: boolean = true;
+
 // --- Strategy segregation -------------------------------------------------
 // "core" is the champion: the original single-stock streak bot, whose behaviour
 // must stay byte-for-byte unchanged. "etf-mr" is the challenger: the same streak
@@ -104,9 +111,6 @@ export type StrategyConfig = {
   // Don't apply the trend gate with fewer than this many bars — fall back is to
   // treat the ticker as having insufficient history and emit no signal.
   minTrendBars: number;
-  // Record SHORT signals for observation but never place SHORT orders. The short
-  // side of mean reversion is the dangerous half, so the challenger starts long-only.
-  longsOnly: boolean;
 };
 
 // etf-mr challenger knobs — all optional env with safe defaults. Its bankroll is
@@ -118,7 +122,6 @@ const ETF_MR_MAX_POSITIONS = envNumber("ETF_MR_MAX_POSITIONS", 10);
 const ETF_MR_HISTORY_WINDOW_DAYS = envNumber("ETF_MR_HISTORY_WINDOW_DAYS", 260);
 const ETF_MR_SMA_PERIOD = envNumber("ETF_MR_SMA_PERIOD", 200);
 const ETF_MR_MIN_TREND_BARS = envNumber("ETF_MR_MIN_TREND_BARS", 50);
-const ETF_MR_LONGS_ONLY = envBool("ETF_MR_LONGS_ONLY", true);
 
 // Resolve a (possibly unknown) strategy string to its config. Anything that
 // isn't "etf-mr" maps to the core champion config, so a stray value can never
@@ -134,7 +137,6 @@ export function strategyConfig(strategy: string): StrategyConfig {
       trendFilter: true,
       smaPeriod: ETF_MR_SMA_PERIOD,
       minTrendBars: ETF_MR_MIN_TREND_BARS,
-      longsOnly: ETF_MR_LONGS_ONLY,
     };
   }
   return {
@@ -147,7 +149,6 @@ export function strategyConfig(strategy: string): StrategyConfig {
     trendFilter: false,
     smaPeriod: 0,
     minTrendBars: 0,
-    longsOnly: false,
   };
 }
 
@@ -157,7 +158,9 @@ export function roundRate(rate: number): number {
   return Math.round(rate * 10_000) / 10_000;
 }
 
-// Long: TP above entry. Short: TP below entry.
+// Long: TP above entry. Short: TP below entry. The SHORT arm is no longer
+// reachable from order placement (LONG_ONLY) but still serves the legacy shorts
+// left open on eToro, whose TP gets re-anchored to the fill price on reconcile.
 export function takeProfitRateFor(direction: "LONG" | "SHORT", entryRate: number): number {
   const factor = direction === "LONG" ? 1 + TAKE_PROFIT_PCT : 1 - TAKE_PROFIT_PCT;
   return roundRate(entryRate * factor);
