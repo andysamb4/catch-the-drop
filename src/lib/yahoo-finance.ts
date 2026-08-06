@@ -63,6 +63,65 @@ export async function getOvernightTape(): Promise<OvernightTape> {
   };
 }
 
+// Full daily OHLCV, oldest -> newest, for symbols with no eToro instrument ID.
+// Those tickers otherwise only ever get today's Finnhub /quote, so a single bad
+// day leaves a permanent hole in their history; this is the backfill that heals
+// it. Prices are the raw traded values (indicators.quote, not adjclose) to match
+// what the Finnhub quote path stores for the same symbol.
+export type DailyBar = {
+  date: string; // YYYY-MM-DD
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number | null;
+};
+
+export async function getDailyBars(symbol: string, windowDays: number): Promise<DailyBar[] | null> {
+  const period2 = Math.floor(Date.now() / 1000);
+  const period1 = period2 - Math.ceil(windowDays * 1.6) * 24 * 60 * 60;
+
+  const res = await fetch(
+    `${YAHOO_BASE}/${encodeURIComponent(symbol)}?period1=${period1}&period2=${period2}&interval=1d`,
+    {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+      cache: "no-store",
+      // A hung upstream would otherwise burn the whole cron function budget.
+      signal: AbortSignal.timeout(10_000),
+    }
+  );
+  if (!res.ok) return null;
+
+  const data = await res.json().catch(() => null);
+  const result = data?.chart?.result?.[0];
+  const timestamps: number[] | undefined = result?.timestamp;
+  const quote = result?.indicators?.quote?.[0];
+  if (!timestamps || !quote) return null;
+
+  const bars: DailyBar[] = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    const { open, high, low, close, volume } = {
+      open: quote.open?.[i],
+      high: quote.high?.[i],
+      low: quote.low?.[i],
+      close: quote.close?.[i],
+      volume: quote.volume?.[i],
+    };
+    // Yahoo pads holidays/halts with null rows; a bar is only usable if it has a
+    // full OHLC set.
+    if (open == null || high == null || low == null || close == null) continue;
+    bars.push({
+      date: new Date(timestamps[i] * 1000).toISOString().slice(0, 10),
+      open,
+      high,
+      low,
+      close,
+      volume: volume ?? null,
+    });
+  }
+  return bars;
+}
+
 export async function getYearOfDailyCloses(symbol: string): Promise<DailyClose[] | null> {
   const res = await fetch(
     `${YAHOO_BASE}/${encodeURIComponent(symbol)}?range=1y&interval=1d`,

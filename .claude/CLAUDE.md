@@ -119,6 +119,44 @@ What it means, end to end:
 To reverse: flip `LONG_ONLY` to `false`, then follow the type errors — they land
 exactly on the sites that must widen back to `"BUY" | "SHORT"`.
 
+## Price history & data gaps (since 2026-08-06)
+
+Two sources fill `PriceBar`, chosen per ticker by `etoroInstrumentId`:
+
+- **Mapped tickers** → eToro daily candles: the whole window every run, so gaps
+  self-heal by construction.
+- **Unmapped tickers** (22 of ~127, e.g. NVDA, AMD, PFE) → **Yahoo's keyless
+  chart API for the window** (`getDailyBars`, `price-history.ts`) plus Finnhub
+  `/quote` for today. Finnhub's free tier has no historical candles, so before
+  this the history was built one quote a day and never repaired.
+
+That one-quote-a-day design was the bug behind the home-page gap spam: on
+2026-08-04 the Finnhub leg failed for all 22 at once (eToro tickers were fine),
+and since a hole permanently blocked detection those tickers were silently muted
+from then on. The holes were real, the fix is to fill them.
+
+Three rules now keep the series honest:
+- **Backfill first, every run** — insert-only (`skipDuplicates`), so today's bar
+  stays the live quote's.
+- **No bars on non-trading days.** A manual weekend run used to store Friday's
+  close under Saturday's date; that flat bar breaks any streak spanning it.
+  Detection also filters existing ones out (they're left in the DB, not deleted).
+- **A gap degrades, it never mutes.** Unfillable holes fall back to
+  `barsAfterLastGap` — the closes after the last hole are genuinely consecutive —
+  and only skip when fewer than 4 bars remain. A missing day the upstream series
+  doesn't have either isn't reported (the instrument didn't trade; `market-calendar`
+  models NYSE only).
+
+Gap notices auto-clear (`resolvePriceGaps`) once a symbol's history is whole, and
+render as a collapsed footnote at the **bottom** of the home and signals pages —
+a data-quality caveat under the numbers, not a red banner above them.
+
+Manual repair after an outage:
+```bash
+NODE_OPTIONS=--use-system-ca npx tsx --env-file=.env scripts/backfill-price-bars.ts --dry-run
+NODE_OPTIONS=--use-system-ca npx tsx --env-file=.env scripts/backfill-price-bars.ts
+```
+
 ## Strategies (champion vs challenger)
 
 Every `WatchlistItem`, `Signal`, and `BotPosition` carries a `strategy` label

@@ -20,3 +20,18 @@ export function findMissingTradingDays(bars: PriceGapBar[]): Date[] {
   }
   return missing;
 }
+
+/**
+ * The unbroken run of bars after the last hole — the series streak detection can
+ * still trust when a gap couldn't be backfilled.
+ *
+ * A gap only corrupts closes that span it: everything after the last missing day
+ * is genuinely consecutive. Detection needs a handful of those to see a streak,
+ * so a stale one-day hole costs at most a few days of coverage for that ticker
+ * instead of muting it indefinitely. Returns the whole array when there are no gaps.
+ */
+export function barsAfterLastGap<T extends PriceGapBar>(bars: T[], gaps: Date[]): T[] {
+  if (gaps.length === 0) return bars;
+  const lastGap = gaps[gaps.length - 1].getTime();
+  return bars.filter((b) => b.date.getTime() > lastGap);
+}

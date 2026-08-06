@@ -6,8 +6,10 @@ import { detectStreakSignal } from "@/lib/signals";
 import { trendGate } from "@/lib/trend";
 import { computeYoyoScore } from "@/lib/yoyo-score";
 import { utcDateOnly } from "@/lib/date";
-import { findMissingTradingDays } from "@/lib/price-gaps";
-import { recordPriceGap } from "@/lib/notifications";
+import { isTradingDay } from "@/lib/market-calendar";
+import { findMissingTradingDays, barsAfterLastGap } from "@/lib/price-gaps";
+import { backfillDailyBars } from "@/lib/price-history";
+import { recordPriceGap, resolvePriceGaps } from "@/lib/notifications";
 import { deriveStrategyFit } from "@/lib/strategy-fit";
 import {
   executeSignalOrder,
@@ -26,6 +28,9 @@ const STALE_HISTORY_MS = 7 * 24 * 60 * 60 * 1000;
 // partway with no trace. eToro's market-data quota is 120 req/min, so keep the
 // concurrency modest: 6 workers finish the list in well under a minute.
 const SCAN_CONCURRENCY = 6;
+// detectStreakSignal needs a 3-day streak plus the bar before it. Below this the
+// post-gap tail can't produce a signal, so there's nothing to fall back to.
+const MIN_BARS_FOR_DETECTION = 4;
 
 type TickerResult = {
   symbol: string;
@@ -59,6 +64,8 @@ async function scanTicker(
   // the candle history exactly as eToro serves it; for Finnhub tickers it is
   // rebuilt from stored PriceBars below.
   let detectionBars: Array<{ close: number }>;
+  // Free-form audit note (trend gate, gap fallback) returned with the result.
+  let note: string | undefined;
 
   if (ticker.etoroInstrumentId) {
     // eToro path: full daily OHLCV history. createMany backfills any bars we
@@ -102,41 +109,75 @@ async function scanTicker(
     detectionBars = bars;
   } else {
     // Finnhub fallback for manually added tickers with no eToro instrument ID.
+    // Yahoo first: it serves the whole window, so any hole left by an earlier
+    // failed run heals here (insert-only — today's bar stays the quote's job).
+    const backfill = await backfillDailyBars(ticker.symbol, cfg.historyWindowDays).catch(
+      () => ({ inserted: 0, upstreamDates: null })
+    );
+
     const quote = await getQuote(ticker.symbol);
     if (!quote) {
       return { symbol: ticker.symbol, status: "no_quote" };
     }
 
-    await prisma.priceBar.upsert({
-      where: { symbol_date: { symbol: ticker.symbol, date: today } },
-      update: { open: quote.o, high: quote.h, low: quote.l, close: quote.c },
-      create: {
-        symbol: ticker.symbol,
-        date: today,
-        open: quote.o,
-        high: quote.h,
-        low: quote.l,
-        close: quote.c,
-      },
-    });
+    // Only on a real session. A manual weekend/holiday run would otherwise store
+    // Friday's close again under today's date — a flat bar that breaks any streak
+    // spanning it, for a day the market never traded.
+    if (isTradingDay(today)) {
+      await prisma.priceBar.upsert({
+        where: { symbol_date: { symbol: ticker.symbol, date: today } },
+        update: { open: quote.o, high: quote.h, low: quote.l, close: quote.c },
+        create: {
+          symbol: ticker.symbol,
+          date: today,
+          open: quote.o,
+          high: quote.h,
+          low: quote.l,
+          close: quote.c,
+        },
+      });
+    }
 
     const recentBars = await prisma.priceBar.findMany({
       where: { symbol: ticker.symbol },
       orderBy: { date: "desc" },
       take: cfg.historyWindowDays,
     });
-    const barsAsc = [...recentBars].reverse();
+    // Drop bars stamped on non-trading days by earlier runs (see above) so their
+    // duplicated closes can't reset a streak.
+    const barsAsc = [...recentBars].reverse().filter((b) => isTradingDay(b.date));
 
-    const gaps = findMissingTradingDays(barsAsc);
-    if (gaps.length > 0) {
-      await recordPriceGap(ticker.symbol, gaps);
-      return { symbol: ticker.symbol, status: "data_gap" };
+    // Only count a missing day as a gap if the upstream series actually has it.
+    // market-calendar models NYSE, so a day the instrument itself didn't trade
+    // (thin ADRs, single-name halts) is absent upstream too and isn't our hole.
+    const calendarGaps = findMissingTradingDays(barsAsc);
+    const gaps = backfill.upstreamDates
+      ? calendarGaps.filter((d) => backfill.upstreamDates!.has(d.toISOString().slice(0, 10)))
+      : calendarGaps;
+
+    if (gaps.length === 0) {
+      await resolvePriceGaps(ticker.symbol);
+      detectionBars = barsAsc;
+    } else {
+      // Fall back to the unbroken run since the last hole rather than muting the
+      // ticker: closes after a gap are still consecutive, so detection is sound
+      // as soon as there are enough of them.
+      const tail = barsAfterLastGap(barsAsc, gaps);
+      const usable = tail.length >= MIN_BARS_FOR_DETECTION;
+      await recordPriceGap(
+        ticker.symbol,
+        gaps,
+        usable
+          ? `Detection ran on the ${tail.length} sessions since.`
+          : `Only ${tail.length} session${tail.length === 1 ? "" : "s"} since — detection skipped until the history rebuilds.`
+      );
+      if (!usable) return { symbol: ticker.symbol, status: "data_gap" };
+      detectionBars = tail;
+      note = `gap fallback: ${tail.length} bars since ${gaps[gaps.length - 1].toISOString().slice(0, 10)}`;
     }
-    detectionBars = barsAsc;
   }
 
   let signal = detectStreakSignal(detectionBars, minSignalMovePct);
-  let note: string | undefined;
 
   // Long-only (see LONG_ONLY): an up-streak is still detected — the same engine
   // backs the backtest, which can still simulate shorts — but it is dropped here,

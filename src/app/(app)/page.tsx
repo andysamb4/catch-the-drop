@@ -28,7 +28,6 @@ export default async function HomePage() {
   return (
     <div className="space-y-4">
       <MarketAlertBanner />
-      <PriceGapBanner />
       <DailyBriefCard />
 
       <div className="grid grid-cols-2 gap-2.5">
@@ -104,6 +103,9 @@ export default async function HomePage() {
       >
         View full signal history
       </Link>
+      {/* Footnote position is intentional — data-quality caveats belong under the
+          numbers they qualify, not above them. */}
+      <PriceGapBanner />
     </div>
   );
 }

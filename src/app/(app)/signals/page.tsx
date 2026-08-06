@@ -8,8 +8,8 @@ export default async function SignalsPage() {
   const signals = await getAllSignals();
   return (
     <div className="space-y-4">
-      <PriceGapBanner />
       <SignalsTable signals={signals} />
+      <PriceGapBanner />
     </div>
   );
 }
