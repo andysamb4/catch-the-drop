@@ -39,15 +39,18 @@ export async function recordPriceGap(
 }
 
 /**
- * Clears a symbol's outstanding gap notices once its history is whole again.
+ * Clears outstanding gap notices for symbols whose history is whole again.
  * Without this the banner keeps reporting holes that a later backfill already
- * closed — nothing else ever marks these read.
+ * closed — nothing else ever marks these read. Called with every symbol that
+ * came out of a scan clean, so a ticker that moves to the eToro candle path
+ * (which has no gap check at all) sheds its old notices too.
  */
-export async function resolvePriceGaps(symbol: string): Promise<void> {
+export async function resolvePriceGaps(symbols: string[]): Promise<void> {
+  if (symbols.length === 0) return;
   await prisma.notification.updateMany({
     where: {
       type: PRICE_GAP_NOTIFICATION_TYPE,
-      title: `${PRICE_GAP_TITLE_PREFIX}${symbol}`,
+      title: { in: symbols.map((s) => `${PRICE_GAP_TITLE_PREFIX}${s}`) },
       read: false,
     },
     data: { read: true },

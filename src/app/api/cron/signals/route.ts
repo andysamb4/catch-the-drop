@@ -39,6 +39,9 @@ type TickerResult = {
   // Free-form note (e.g. which SMA the trend gate used, or why an etf-mr signal
   // was blocked) — surfaced in the run's JSON so the experiment is auditable.
   note?: string;
+  // True when this run left an unfilled hole in the ticker's history. Everything
+  // else is resolved at the end of the run, clearing stale gap notices.
+  gapReported?: boolean;
   // Set when a signal was stored and the ticker is auto-tradeable (has an
   // eToro instrument ID) — consumed by the order-placement pass after the scan.
   tradeInput?: {
@@ -66,6 +69,7 @@ async function scanTicker(
   let detectionBars: Array<{ close: number }>;
   // Free-form audit note (trend gate, gap fallback) returned with the result.
   let note: string | undefined;
+  let gapReported = false;
 
   if (ticker.etoroInstrumentId) {
     // eToro path: full daily OHLCV history. createMany backfills any bars we
@@ -156,7 +160,6 @@ async function scanTicker(
       : calendarGaps;
 
     if (gaps.length === 0) {
-      await resolvePriceGaps(ticker.symbol);
       detectionBars = barsAsc;
     } else {
       // Fall back to the unbroken run since the last hole rather than muting the
@@ -164,6 +167,7 @@ async function scanTicker(
       // as soon as there are enough of them.
       const tail = barsAfterLastGap(barsAsc, gaps);
       const usable = tail.length >= MIN_BARS_FOR_DETECTION;
+      gapReported = true;
       await recordPriceGap(
         ticker.symbol,
         gaps,
@@ -171,7 +175,7 @@ async function scanTicker(
           ? `Detection ran on the ${tail.length} sessions since.`
           : `Only ${tail.length} session${tail.length === 1 ? "" : "s"} since — detection skipped until the history rebuilds.`
       );
-      if (!usable) return { symbol: ticker.symbol, status: "data_gap" };
+      if (!usable) return { symbol: ticker.symbol, status: "data_gap", gapReported };
       detectionBars = tail;
       note = `gap fallback: ${tail.length} bars since ${gaps[gaps.length - 1].toISOString().slice(0, 10)}`;
     }
@@ -257,7 +261,7 @@ async function scanTicker(
     },
   });
 
-  return { symbol: ticker.symbol, status: "ok", signal: signal?.type, note, tradeInput };
+  return { symbol: ticker.symbol, status: "ok", signal: signal?.type, note, gapReported, tradeInput };
 }
 
 export async function GET(request: NextRequest) {
@@ -299,6 +303,13 @@ export async function GET(request: NextRequest) {
 
   const signalCount = results.filter((r) => r.signal).length;
   const errorCount = results.filter((r) => r.status.startsWith("error")).length;
+
+  // Clear gap notices for every ticker that came through this run whole — a
+  // backfilled hole, or a ticker that moved to the eToro candle path. Otherwise
+  // the home-page footnote keeps reporting holes that no longer exist.
+  await resolvePriceGaps(
+    results.filter((r) => r && !r.gapReported).map((r) => r.symbol)
+  ).catch(() => {});
 
   // Auto-trade pass: place the $TRADE_SIZE_USD market order (TP attached) for
   // each executable signal. Sequential — a signal day yields a handful of

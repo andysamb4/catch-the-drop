@@ -60,7 +60,7 @@ async function main() {
     const windowDays = strategyConfig(t.strategy).historyWindowDays;
     const before = await gapsFor(t.symbol, windowDays);
     if (before.gaps.length === 0) {
-      if (!dryRun) await resolvePriceGaps(t.symbol);
+      if (!dryRun) await resolvePriceGaps([t.symbol]);
       console.log(`${t.symbol.padEnd(6)} ok (${before.bars.length} bars)`);
       continue;
     }
@@ -80,7 +80,7 @@ async function main() {
 
     if (unfilled.length === 0) {
       repaired++;
-      await resolvePriceGaps(t.symbol);
+      await resolvePriceGaps([t.symbol]);
       console.log(
         `${t.symbol.padEnd(6)} repaired: +${inserted} bars, filled ${before.gaps.map(iso).join(", ")}`
       );
