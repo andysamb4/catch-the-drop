@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { generateText } from "@/lib/ai/client";
+import { AIError, generateText } from "@/lib/ai/client";
 import { dailyBriefPrompt } from "@/lib/ai/prompts";
 import { getGeneralNews, getEarningsCalendar } from "@/lib/finnhub";
 import { getOvernightTape, getVixSnapshot, type OvernightTape } from "@/lib/yahoo-finance";
@@ -20,8 +20,16 @@ const EARNINGS_AHEAD_DAYS = 7;
 const FRESH_SIGNAL_MAX_AGE_DAYS = 4;
 
 export type DailyBriefRun = {
-  status: "created" | "already_exists";
+  status: "created" | "already_exists" | "repaired";
   brief: DailyBrief;
+};
+
+type BriefInput = {
+  tape: OvernightTape;
+  vix: { level: number; changePct: number } | null;
+  earnings: string[];
+  positions: string[];
+  freshSignals: string[];
 };
 
 const HOUR_LABEL: Record<string, string> = {
@@ -47,6 +55,70 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+function isProviderPolicyText(content: string): boolean {
+  return /request is blocked|prohibited use policy|pup violations?|account restrictions|ai\.google\.dev\/gemini-api/i.test(
+    content
+  );
+}
+
+function isUsableBriefContent(content: string): boolean {
+  const lines = content
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return lines.length > 0 && !isProviderPolicyText(content);
+}
+
+function buildFallbackDailyBrief({ tape, vix, earnings, positions, freshSignals }: BriefInput): string {
+  const riskOnSignals = [tape.spFuturesPct, tape.nasdaqFuturesPct].filter(
+    (pct): pct is number => pct != null
+  );
+  const avgEquityFutures =
+    riskOnSignals.length > 0 ? riskOnSignals.reduce((sum, pct) => sum + pct, 0) / riskOnSignals.length : null;
+
+  const stance =
+    avgEquityFutures == null
+      ? "Open read is mixed; keep sizing disciplined"
+      : avgEquityFutures >= 0.4
+        ? "Risk-on open; longs have a tailwind"
+        : avgEquityFutures <= -0.4
+          ? "Risk-off open; size new longs carefully"
+          : "Muted open; stock-specific setups matter most";
+
+  const bullets: string[] = [];
+  if (tape.oilPct != null && Math.abs(tape.oilPct) >= 1) {
+    bullets.push(tape.oilPct > 0 ? "Oil strength may pressure risk appetite" : "Softer oil helps the inflation backdrop");
+  } else if (avgEquityFutures != null) {
+    bullets.push(avgEquityFutures >= 0 ? "Futures point to a supportive tape" : "Futures point to a cautious tape");
+  }
+
+  if (vix) {
+    bullets.push(
+      vix.level >= 22
+        ? "Volatility is elevated, so mean-reversion tails are wider"
+        : vix.level <= 15
+          ? "Volatility is calm enough for normal position sizing"
+          : "Volatility is watchful but not stressed"
+    );
+  }
+
+  if (freshSignals.length > 0) {
+    bullets.push(`${freshSignals.length} fresh BUY signal${freshSignals.length === 1 ? "" : "s"} need tape-aware sizing`);
+  }
+
+  if (earnings.length > 0) {
+    bullets.push(`Earnings watch: ${earnings.slice(0, 2).join("; ")}`);
+  }
+
+  if (positions.length > 0) {
+    bullets.push(`${positions.length} open or pending bot position${positions.length === 1 ? "" : "s"} ride the open`);
+  }
+
+  const uniqueBullets = Array.from(new Set(bullets)).slice(0, 5);
+  return [stance, ...uniqueBullets.map((bullet) => `- ${bullet}`)].join("\n");
+}
+
 /**
  * Generates today's pre-open digest — overnight tape, catalysts, earnings that
  * touch our names, open positions — and persists it as a DailyBrief row.
@@ -58,7 +130,9 @@ export async function generateDailyBrief(): Promise<DailyBriefRun> {
   const today = utcDateOnly();
 
   const existing = await prisma.dailyBrief.findUnique({ where: { date: today } });
-  if (existing) return { status: "already_exists", brief: existing };
+  if (existing && isUsableBriefContent(existing.content)) {
+    return { status: "already_exists", brief: existing };
+  }
 
   const mode = getEtoroMode();
   const earningsTo = new Date(today.getTime() + EARNINGS_AHEAD_DAYS * 24 * 3600 * 1000);
@@ -133,23 +207,47 @@ export async function generateDailyBrief(): Promise<DailyBriefRun> {
       `${s.type} ${s.symbol} (${s.strategy}): ${s.streakLength}-day streak, ${s.cumulativeMovePct.toFixed(1)}% cumulative`
   );
 
-  const raw = await generateText(
-    dailyBriefPrompt({
-      tape: tapeLines,
-      headlines,
-      earnings: ourEarnings,
-      positions: positionLines,
-      freshSignals: signalLines,
-    })
-  );
+  const fallbackContent = buildFallbackDailyBrief({
+    tape,
+    vix,
+    earnings: ourEarnings,
+    positions: positionLines,
+    freshSignals: signalLines,
+  });
+
+  let raw: string;
+  try {
+    raw = await generateText(
+      dailyBriefPrompt({
+        tape: tapeLines,
+        headlines,
+        earnings: ourEarnings,
+        positions: positionLines,
+        freshSignals: signalLines,
+      })
+    );
+  } catch (err) {
+    if (!(err instanceof AIError)) {
+      console.warn("Daily brief LLM failed; using fallback content", err);
+    }
+    raw = fallbackContent;
+  }
 
   // Tolerate stray code fences despite the prompt asking for none.
-  const content = raw.replace(/^```[a-z]*\n?|```$/g, "").trim();
+  const generatedContent = raw.replace(/^```[a-z]*\n?|```$/g, "").trim();
+  const content = isUsableBriefContent(generatedContent) ? generatedContent : fallbackContent;
   if (!content) throw new Error("LLM returned an empty daily brief");
 
   const brief = await prisma.dailyBrief.upsert({
     where: { date: today },
-    update: {},
+    update: {
+      content,
+      spFuturesPct: tape.spFuturesPct,
+      nasdaqFuturesPct: tape.nasdaqFuturesPct,
+      oilPct: tape.oilPct,
+      vix: vix?.level ?? null,
+      vixChangePct: vix?.changePct ?? null,
+    },
     create: {
       date: today,
       content,
@@ -160,7 +258,7 @@ export async function generateDailyBrief(): Promise<DailyBriefRun> {
       vixChangePct: vix?.changePct ?? null,
     },
   });
-  return { status: "created", brief };
+  return { status: existing ? "repaired" : "created", brief };
 }
 
 /**
@@ -170,8 +268,32 @@ export async function generateDailyBrief(): Promise<DailyBriefRun> {
  */
 export async function getActiveDailyBrief(): Promise<DailyBrief | null> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  return prisma.dailyBrief.findFirst({
+  const brief = await prisma.dailyBrief.findFirst({
     where: { createdAt: { gte: since } },
     orderBy: { createdAt: "desc" },
+  });
+  if (!brief || isUsableBriefContent(brief.content)) return brief;
+
+  const content = buildFallbackDailyBrief({
+    tape: {
+      spFuturesPct: brief.spFuturesPct,
+      nasdaqFuturesPct: brief.nasdaqFuturesPct,
+      oilPct: brief.oilPct,
+    },
+    vix:
+      brief.vix == null
+        ? null
+        : {
+            level: brief.vix,
+            changePct: brief.vixChangePct ?? 0,
+          },
+    earnings: [],
+    positions: [],
+    freshSignals: [],
+  });
+
+  return prisma.dailyBrief.update({
+    where: { id: brief.id },
+    data: { content },
   });
 }
