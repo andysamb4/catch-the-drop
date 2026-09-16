@@ -7,7 +7,46 @@
 //     standard OpenAI chat-completions shape (tools array, tool_calls, role:"tool").
 // KIE_MODEL picks the model; the family (and therefore the endpoint/wire format) is
 // inferred from its name so callers never need to know which shape is in play.
+//
+// One model is not enough in practice. kie.ai's Gemini upstream intermittently answers
+// with an account-level "Prohibited Use Policy" refusal — HTTP 200, normal completion
+// shape, the refusal text sitting where the answer should be (15 Sep 2026: it rendered
+// verbatim on the home page's morning-brief card). So every call runs KIE_MODEL first and
+// retries once on KIE_FALLBACK_MODEL, which defaults to a DIFFERENT vendor's model: a
+// refusal is a property of that vendor's policy layer, so retrying the same one is futile.
 export class AIError extends Error {}
+
+/**
+ * A response another vendor could plausibly answer: a refusal dressed up as a completion,
+ * or an empty one. Its own class so the fallback fires on a decision, not on a guess.
+ */
+export class AIBlockedError extends AIError {}
+
+// GPT 5.2 — the GPT chat model kie.ai actually serves on this key (gpt-5-5, gpt-6-astra
+// and friends answer "the model is not supported"), priced within pennies of the Gemini
+// default: $0.44/M in, $3.50/M out.
+const DEFAULT_FALLBACK_MODEL = "gpt-5-2";
+
+const PROVIDER_BLOCK_PATTERNS = [
+  /prohibited use policy/i,
+  /\bPUP violations?\b/i,
+  /request is blocked/i,
+  /ai\.google\.dev\/gemini-api/i,
+  /blocked by (the )?safety/i,
+];
+
+/** True when a 200 carries a provider refusal instead of an answer. */
+export function isProviderBlockText(text: string): boolean {
+  return PROVIDER_BLOCK_PATTERNS.some((p) => p.test(text));
+}
+
+function assertUsable(text: string, model: string): string {
+  if (!text.trim()) throw new AIBlockedError(`${model} returned an empty completion.`);
+  if (isProviderBlockText(text)) {
+    throw new AIBlockedError(`${model} refused: ${text.trim().slice(0, 160)}`);
+  }
+  return text;
+}
 
 export type AiChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -29,7 +68,41 @@ function assertConfigured() {
   if (!model || model.startsWith("REPLACE_WITH_")) {
     throw new AIError("KIE_MODEL is not configured with a real model ID yet.");
   }
-  return { apiKey, model };
+  // Set KIE_FALLBACK_MODEL to "" to opt out; pointing it at the primary amounts to the same.
+  const fallback = process.env.KIE_FALLBACK_MODEL ?? DEFAULT_FALLBACK_MODEL;
+  return { apiKey, model, fallbackModel: fallback && fallback !== model ? fallback : null };
+}
+
+/** The same chain assertConfigured resolves, but non-throwing — for the settings page. */
+export function modelChain(): { model: string | null; fallbackModel: string | null } {
+  const raw = process.env.KIE_MODEL;
+  const model = raw && !raw.startsWith("REPLACE_WITH_") ? raw : null;
+  const fallback = process.env.KIE_FALLBACK_MODEL ?? DEFAULT_FALLBACK_MODEL;
+  return { model, fallbackModel: fallback && fallback !== model ? fallback : null };
+}
+
+/**
+ * Runs `attempt` on the primary model, then once more on the fallback if it failed in a way
+ * a different vendor could survive. When both die the error names both — by then the
+ * caller's degraded path is the honest answer, and knowing which pair failed is what makes
+ * the cron's status line debuggable.
+ */
+async function withModelFallback<T>(
+  { model, fallbackModel }: { model: string; fallbackModel: string | null },
+  attempt: (model: string) => Promise<T>
+): Promise<T> {
+  try {
+    return await attempt(model);
+  } catch (err) {
+    if (!fallbackModel) throw err;
+    const reason = (err as Error).message;
+    console.warn(`kie.ai model ${model} failed (${reason}); retrying on ${fallbackModel}`);
+    try {
+      return await attempt(fallbackModel);
+    } catch (fallbackErr) {
+      throw new AIError(`${model}: ${reason} | ${fallbackModel}: ${(fallbackErr as Error).message}`);
+    }
+  }
 }
 
 function isClaudeModel(model: string) {
@@ -210,28 +283,32 @@ async function runOpenAiLoop(params: {
 
 /** Single-shot completion with no tools — used by the morning brief and yo-yo hunter. */
 export async function generateText(prompt: string, system?: string): Promise<string> {
-  const { apiKey, model } = assertConfigured();
+  const config = assertConfigured();
+  const { apiKey } = config;
 
-  if (isClaudeModel(model)) {
-    const response = await callClaude({
-      apiKey,
-      model,
-      messages: [{ role: "user", content: prompt }],
-      system,
-      maxTokens: 1024,
-    });
-    return response.content
-      .filter((b): b is Extract<ClaudeContentBlock, { type: "text" }> => b.type === "text")
-      .map((b) => b.text)
-      .join("\n");
-  }
+  return withModelFallback(config, async (model) => {
+    if (isClaudeModel(model)) {
+      const response = await callClaude({
+        apiKey,
+        model,
+        messages: [{ role: "user", content: prompt }],
+        system,
+        maxTokens: 1024,
+      });
+      const text = response.content
+        .filter((b): b is Extract<ClaudeContentBlock, { type: "text" }> => b.type === "text")
+        .map((b) => b.text)
+        .join("\n");
+      return assertUsable(text, model);
+    }
 
-  const messages: OpenAiMessage[] = [
-    ...(system ? [{ role: "system" as const, content: system }] : []),
-    { role: "user", content: prompt },
-  ];
-  const { message } = await callOpenAiStyle({ apiKey, model, messages });
-  return message.content ?? "";
+    const messages: OpenAiMessage[] = [
+      ...(system ? [{ role: "system" as const, content: system }] : []),
+      { role: "user", content: prompt },
+    ];
+    const { message } = await callOpenAiStyle({ apiKey, model, messages });
+    return assertUsable(message.content ?? "", model);
+  });
 }
 
 /**
@@ -251,7 +328,19 @@ export async function runAgentLoop({
   executeTool: (name: string, args: Record<string, unknown>) => Promise<unknown>;
   maxIterations?: number;
 }): Promise<string> {
-  const { apiKey, model } = assertConfigured();
-  const run = isClaudeModel(model) ? runClaudeLoop : runOpenAiLoop;
-  return run({ apiKey, model, messages, system, tools, executeTool, maxIterations });
+  const config = assertConfigured();
+  // Replaying the whole loop on the fallback is safe: every AI tool is a read.
+  return withModelFallback(config, async (model) => {
+    const run = isClaudeModel(model) ? runClaudeLoop : runOpenAiLoop;
+    const text = await run({
+      apiKey: config.apiKey,
+      model,
+      messages,
+      system,
+      tools,
+      executeTool,
+      maxIterations,
+    });
+    return assertUsable(text, model);
+  });
 }

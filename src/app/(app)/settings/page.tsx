@@ -6,12 +6,13 @@ import { SettingsForm } from "@/components/settings/settings-form";
 import { CronTrigger } from "@/components/settings/cron-trigger";
 import { EtoroSync } from "@/components/settings/etoro-sync";
 import { prisma } from "@/lib/db";
+import { modelChain } from "@/lib/ai/client";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
   const settings = await prisma.settings.findUnique({ where: { id: 1 } });
-  const modelConfigured = !!process.env.KIE_MODEL && !process.env.KIE_MODEL.startsWith("REPLACE_WITH_");
+  const { model: aiModel, fallbackModel } = modelChain();
   const etoroConfigured = !!process.env.ETORO_API_KEY && !!process.env.ETORO_USER_KEY;
 
   return (
@@ -43,12 +44,19 @@ export default async function SettingsPage() {
           />
           <div className="flex items-center justify-between border-t border-border pt-3 text-sm">
             <span>kie.ai model</span>
-            <span className={modelConfigured ? "text-primary" : "text-muted-foreground"}>
-              {modelConfigured ? "Configured" : "Not set"}
+            <span className={aiModel ? "text-primary" : "text-muted-foreground"}>
+              {aiModel ?? "Not set"}
             </span>
           </div>
+          {fallbackModel && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Fallback model</span>
+              <span className="text-muted-foreground">{fallbackModel}</span>
+            </div>
+          )}
           <p className="text-xs text-muted-foreground">
-            The kie.ai model is set via the KIE_MODEL environment variable, not stored here.
+            Set via the KIE_MODEL and KIE_FALLBACK_MODEL environment variables, not stored here.
+            The fallback runs whenever the primary errors, refuses, or answers empty.
           </p>
         </CardContent>
       </Card>

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { AIError, generateText } from "@/lib/ai/client";
+import { generateText, isProviderBlockText } from "@/lib/ai/client";
 import { dailyBriefPrompt } from "@/lib/ai/prompts";
 import { getGeneralNews, getEarningsCalendar } from "@/lib/finnhub";
 import { getOvernightTape, getVixSnapshot, type OvernightTape } from "@/lib/yahoo-finance";
@@ -55,19 +55,16 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-function isProviderPolicyText(content: string): boolean {
-  return /request is blocked|prohibited use policy|pup violations?|account restrictions|ai\.google\.dev\/gemini-api/i.test(
-    content
-  );
-}
-
+// Block text should no longer reach here — the AI client turns a refusal into an error and
+// retries the other vendor — but rows written before that landed still carry one, and this
+// is what repairs them on the next read or run.
 function isUsableBriefContent(content: string): boolean {
   const lines = content
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
 
-  return lines.length > 0 && !isProviderPolicyText(content);
+  return lines.length > 0 && !isProviderBlockText(content);
 }
 
 function buildFallbackDailyBrief({ tape, vix, earnings, positions, freshSignals }: BriefInput): string {
@@ -227,9 +224,9 @@ export async function generateDailyBrief(): Promise<DailyBriefRun> {
       })
     );
   } catch (err) {
-    if (!(err instanceof AIError)) {
-      console.warn("Daily brief LLM failed; using fallback content", err);
-    }
+    // Both models are down by the time this fires (the client already retried the
+    // fallback), so the template brief below is genuinely the last resort — always say so.
+    console.warn("Daily brief LLM failed; using fallback content", err);
     raw = fallbackContent;
   }
 

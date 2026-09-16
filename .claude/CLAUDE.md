@@ -192,6 +192,40 @@ Tier 1 is live (33 ETFs; SPY/QQQ were reassigned from core, VYM/VLUE dropped as
 unlisted). eToro's public API has no symbol→id lookup — `?symbols=` is ignored —
 so resolution fetches the whole ~15.5k-instrument list via `getAllInstruments()`.
 
+## AI models & the vendor fallback (since 2026-09-15)
+
+Every LLM call goes through `src/lib/ai/client.ts`, which runs a two-model chain:
+
+- `KIE_MODEL` — primary, currently `gemini-3.1-pro`.
+- `KIE_FALLBACK_MODEL` — default `gpt-5-2` (GPT 5.2), **baked into the code**, so prod
+  needs no Vercel env change. Set it to `""` to opt out.
+
+Why: kie.ai's Gemini upstream intermittently answers with an account-level "Prohibited
+Use Policy" refusal — **HTTP 200, normal completion shape, the refusal sitting in the
+content where the answer should be**. On 2026-09-15 that text rendered verbatim on the
+home page's morning-brief card. The client now treats a refusal (or an empty answer) as
+`AIBlockedError` and retries on a *different vendor* — a refusal is a property of that
+vendor's policy layer, so retrying the same model is futile. Both failing throws one
+`AIError` naming both models, which is what lands in the cron's status line.
+
+This covers every caller at once: daily brief, market alert, per-signal commentary,
+yo-yo hunter, and the chat agent loop (safe to replay — all AI tools are reads). The
+daily brief's template fallback (`buildFallbackDailyBrief`) is now genuine last resort.
+
+kie.ai model notes:
+- The catalogue is `GET https://api.kie.ai/api/v1/models` (~206 models; the LLMs are the
+  `"taskType": ["Chat"]` ones). Listing it is the only way to know what exists.
+- Not every listed Chat model is enabled on this key — `gpt-5-5`, `gpt-5-6-*` and
+  `gpt-6-astra` all answer `{"code":422,"msg":"The model is not supported"}` (an **HTTP
+  200** with the error in the body). `gpt-5-2` works; it's ~$0.44/M in, $3.50/M out,
+  within pennies of the Gemini default.
+- Wire formats: Claude models → `/claude/v1/messages`; everything else →
+  `/{model}/v1/chat/completions` with the model in the *path*, not the body.
+
+To make GPT the primary instead, set `KIE_MODEL=gpt-5-2` in Vercel **and**
+`KIE_FALLBACK_MODEL=gemini-3.1-pro` — a fallback equal to the primary resolves to no
+fallback at all, so without the second var you'd be back to a single model.
+
 ## Stack
 - **Framework**: Next.js
 - **Database**: Prisma + PostgreSQL
