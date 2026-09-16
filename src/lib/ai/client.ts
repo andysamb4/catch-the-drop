@@ -5,15 +5,15 @@
 //     Messages API (system as a top-level field, tool_use/tool_result content blocks).
 //   - Everything else (Gemini, GPT, ...): https://api.kie.ai/{model}/v1/chat/completions,
 //     standard OpenAI chat-completions shape (tools array, tool_calls, role:"tool").
-// KIE_MODEL picks the model; the family (and therefore the endpoint/wire format) is
-// inferred from its name so callers never need to know which shape is in play.
+// The family (and therefore the endpoint/wire format) is inferred from the model's name,
+// so callers never need to know which shape is in play.
 //
 // One model is not enough in practice. kie.ai's Gemini upstream intermittently answers
 // with an account-level "Prohibited Use Policy" refusal — HTTP 200, normal completion
 // shape, the refusal text sitting where the answer should be (15 Sep 2026: it rendered
-// verbatim on the home page's morning-brief card). So every call runs KIE_MODEL first and
-// retries once on KIE_FALLBACK_MODEL, which defaults to a DIFFERENT vendor's model: a
-// refusal is a property of that vendor's policy layer, so retrying the same one is futile.
+// verbatim on the home page's morning-brief card). So every call walks MODEL_CHAIN in
+// order, and the next model is always a DIFFERENT vendor: a refusal is a property of that
+// vendor's policy layer, so retrying the same one is futile.
 export class AIError extends Error {}
 
 /**
@@ -22,10 +22,15 @@ export class AIError extends Error {}
  */
 export class AIBlockedError extends AIError {}
 
-// GPT 5.2 — the GPT chat model kie.ai actually serves on this key (gpt-5-5, gpt-6-astra
-// and friends answer "the model is not supported"), priced within pennies of the Gemini
-// default: $0.44/M in, $3.50/M out.
-const DEFAULT_FALLBACK_MODEL = "gpt-5-2";
+// The models to try, lead first. Deliberately a code constant rather than an env var —
+// same reasoning as LONG_ONLY: the order is an evidence-driven decision (Gemini's PUP
+// block put a refusal on the home page on 15 Sep, and GPT 5.2 wrote the better brief
+// head-to-head on the same prompt), so it belongs in the git history, not in a dashboard
+// setting that can't be read back. gpt-5-2 is also the only GPT chat model kie.ai serves
+// on this key — gpt-5-5, gpt-5-6-* and gpt-6-astra all answer "the model is not
+// supported" — and it costs within pennies of Gemini: $0.44/M in, $3.50/M out.
+// KIE_MODEL_CHAIN (comma-separated) overrides the whole list for a quick experiment.
+const MODEL_CHAIN = ["gpt-5-2", "gemini-3.1-pro"];
 
 const PROVIDER_BLOCK_PATTERNS = [
   /prohibited use policy/i,
@@ -40,7 +45,24 @@ export function isProviderBlockText(text: string): boolean {
   return PROVIDER_BLOCK_PATTERNS.some((p) => p.test(text));
 }
 
-function assertUsable(text: string, model: string): string {
+// GPT leaks a web-search citation marker into the prose every handful of calls: private-use
+// wrapper characters around "cite" + "turn0search10", which renders as mojibake
+// mid-sentence on the brief card (seen twice while testing the switch, 16 Sep 2026). Both
+// halves get stripped — the whole private-use block, which is never legitimate in a brief,
+// and then the turn-N token that survives once the wrappers are gone, in whichever form it
+// arrives (turn0search10, turn0news16, ...).
+const CITATION_ARTIFACTS = [
+  /[\uE000-\uF8FF]/g,
+  /(?:cite)?turn\d+[a-z]+\d*/gi,
+];
+
+/** Strips provider junk, then rejects anything that isn't actually an answer. */
+function cleanUsableText(raw: string, model: string): string {
+  const text = CITATION_ARTIFACTS.reduce((acc, p) => acc.replace(p, ""), raw).replace(
+    /[ \t]+$/gm,
+    ""
+  );
+
   if (!text.trim()) throw new AIBlockedError(`${model} returned an empty completion.`);
   if (isProviderBlockText(text)) {
     throw new AIBlockedError(`${model} refused: ${text.trim().slice(0, 160)}`);
@@ -61,48 +83,67 @@ type NormalizedResult = {
   toolCalls: Array<{ id: string; name: string; args: Record<string, unknown> }>;
 };
 
+/** The models this install will try, in order. Lead first. */
+export function modelChain(): string[] {
+  const override = (process.env.KIE_MODEL_CHAIN ?? "")
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+  return override.length ? override : MODEL_CHAIN;
+}
+
 function assertConfigured() {
   const apiKey = process.env.KIE_API_KEY;
-  const model = process.env.KIE_MODEL;
   if (!apiKey) throw new AIError("KIE_API_KEY is not set.");
-  if (!model || model.startsWith("REPLACE_WITH_")) {
-    throw new AIError("KIE_MODEL is not configured with a real model ID yet.");
-  }
-  // Set KIE_FALLBACK_MODEL to "" to opt out; pointing it at the primary amounts to the same.
-  const fallback = process.env.KIE_FALLBACK_MODEL ?? DEFAULT_FALLBACK_MODEL;
-  return { apiKey, model, fallbackModel: fallback && fallback !== model ? fallback : null };
+  return { apiKey, models: modelChain() };
 }
 
-/** The same chain assertConfigured resolves, but non-throwing — for the settings page. */
-export function modelChain(): { model: string | null; fallbackModel: string | null } {
-  const raw = process.env.KIE_MODEL;
-  const model = raw && !raw.startsWith("REPLACE_WITH_") ? raw : null;
-  const fallback = process.env.KIE_FALLBACK_MODEL ?? DEFAULT_FALLBACK_MODEL;
-  return { model, fallbackModel: fallback && fallback !== model ? fallback : null };
+// kie.ai throws transient upstream errors on both vendors several times an hour — HTTP 500,
+// or a 200 carrying {"code":524,"msg":"2 times retry fail"} — and they clear on the next
+// call (three of them showed up while testing the GPT switch on 16 Sep 2026). One retry on
+// the same model is cheaper than burning the fallback. A refusal or an unsupported model id
+// will never heal, so those drop straight through to the next vendor.
+const TRANSIENT_ERROR = /\(5\d\d\)|"code"\s*:\s*5\d\d|retry fail|fetch failed|timeout|ECONNRESET|ETIMEDOUT/i;
+const TRANSIENT_RETRY_MS = 1000;
+
+function isTransient(err: unknown): boolean {
+  return !(err instanceof AIBlockedError) && TRANSIENT_ERROR.test((err as Error)?.message ?? "");
 }
 
-/**
- * Runs `attempt` on the primary model, then once more on the fallback if it failed in a way
- * a different vendor could survive. When both die the error names both — by then the
- * caller's degraded path is the honest answer, and knowing which pair failed is what makes
- * the cron's status line debuggable.
- */
-async function withModelFallback<T>(
-  { model, fallbackModel }: { model: string; fallbackModel: string | null },
-  attempt: (model: string) => Promise<T>
-): Promise<T> {
+async function attemptModel<T>(model: string, attempt: (model: string) => Promise<T>): Promise<T> {
   try {
     return await attempt(model);
   } catch (err) {
-    if (!fallbackModel) throw err;
-    const reason = (err as Error).message;
-    console.warn(`kie.ai model ${model} failed (${reason}); retrying on ${fallbackModel}`);
+    if (!isTransient(err)) throw err;
+    console.warn(`kie.ai model ${model} hiccuped (${(err as Error).message}); one more try`);
+    await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_MS));
+    return attempt(model);
+  }
+}
+
+/**
+ * Walks the chain until one model answers. When every model fails the error names each
+ * with its reason — by then the caller's degraded path is the honest answer, and knowing
+ * which models died is what makes the cron's status line debuggable.
+ */
+async function withModelFallback<T>(
+  models: string[],
+  attempt: (model: string) => Promise<T>
+): Promise<T> {
+  const failures: string[] = [];
+
+  for (const [i, model] of models.entries()) {
     try {
-      return await attempt(fallbackModel);
-    } catch (fallbackErr) {
-      throw new AIError(`${model}: ${reason} | ${fallbackModel}: ${(fallbackErr as Error).message}`);
+      return await attemptModel(model, attempt);
+    } catch (err) {
+      const reason = (err as Error).message;
+      failures.push(`${model}: ${reason}`);
+      const next = models[i + 1];
+      if (next) console.warn(`kie.ai model ${model} failed (${reason}); retrying on ${next}`);
     }
   }
+
+  throw new AIError(failures.join(" | ") || "No kie.ai model configured.");
 }
 
 function isClaudeModel(model: string) {
@@ -283,10 +324,9 @@ async function runOpenAiLoop(params: {
 
 /** Single-shot completion with no tools — used by the morning brief and yo-yo hunter. */
 export async function generateText(prompt: string, system?: string): Promise<string> {
-  const config = assertConfigured();
-  const { apiKey } = config;
+  const { apiKey, models } = assertConfigured();
 
-  return withModelFallback(config, async (model) => {
+  return withModelFallback(models, async (model) => {
     if (isClaudeModel(model)) {
       const response = await callClaude({
         apiKey,
@@ -299,7 +339,7 @@ export async function generateText(prompt: string, system?: string): Promise<str
         .filter((b): b is Extract<ClaudeContentBlock, { type: "text" }> => b.type === "text")
         .map((b) => b.text)
         .join("\n");
-      return assertUsable(text, model);
+      return cleanUsableText(text, model);
     }
 
     const messages: OpenAiMessage[] = [
@@ -307,7 +347,7 @@ export async function generateText(prompt: string, system?: string): Promise<str
       { role: "user", content: prompt },
     ];
     const { message } = await callOpenAiStyle({ apiKey, model, messages });
-    return assertUsable(message.content ?? "", model);
+    return cleanUsableText(message.content ?? "", model);
   });
 }
 
@@ -328,12 +368,12 @@ export async function runAgentLoop({
   executeTool: (name: string, args: Record<string, unknown>) => Promise<unknown>;
   maxIterations?: number;
 }): Promise<string> {
-  const config = assertConfigured();
-  // Replaying the whole loop on the fallback is safe: every AI tool is a read.
-  return withModelFallback(config, async (model) => {
+  const { apiKey, models } = assertConfigured();
+  // Replaying the whole loop on the next model is safe: every AI tool is a read.
+  return withModelFallback(models, async (model) => {
     const run = isClaudeModel(model) ? runClaudeLoop : runOpenAiLoop;
     const text = await run({
-      apiKey: config.apiKey,
+      apiKey,
       model,
       messages,
       system,
@@ -341,6 +381,6 @@ export async function runAgentLoop({
       executeTool,
       maxIterations,
     });
-    return assertUsable(text, model);
+    return cleanUsableText(text, model);
   });
 }

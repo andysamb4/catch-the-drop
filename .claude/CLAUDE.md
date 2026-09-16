@@ -194,19 +194,31 @@ so resolution fetches the whole ~15.5k-instrument list via `getAllInstruments()`
 
 ## AI models & the vendor fallback (since 2026-09-15)
 
-Every LLM call goes through `src/lib/ai/client.ts`, which runs a two-model chain:
+Every LLM call goes through `src/lib/ai/client.ts`, which walks `MODEL_CHAIN` in order:
 
-- `KIE_MODEL` — primary, currently `gemini-3.1-pro`.
-- `KIE_FALLBACK_MODEL` — default `gpt-5-2` (GPT 5.2), **baked into the code**, so prod
-  needs no Vercel env change. Set it to `""` to opt out.
+```ts
+const MODEL_CHAIN = ["gpt-5-2", "gemini-3.1-pro"];  // lead first
+```
 
-Why: kie.ai's Gemini upstream intermittently answers with an account-level "Prohibited
-Use Policy" refusal — **HTTP 200, normal completion shape, the refusal sitting in the
-content where the answer should be**. On 2026-09-15 that text rendered verbatim on the
-home page's morning-brief card. The client now treats a refusal (or an empty answer) as
-`AIBlockedError` and retries on a *different vendor* — a refusal is a property of that
-vendor's policy layer, so retrying the same model is futile. Both failing throws one
-`AIError` naming both models, which is what lands in the cron's status line.
+Like `LONG_ONLY`, this is **deliberately a code constant, not an env var** — the order is
+an evidence-driven decision and belongs in the git history, not in a Vercel setting that
+can't be read back (`vercel env pull` returns empty strings). `KIE_MODEL_CHAIN`
+(comma-separated) overrides the whole list for an experiment. `KIE_MODEL` and
+`KIE_FALLBACK_MODEL` are **no longer read** — any copy still sitting in Vercel does
+nothing and can be deleted.
+
+Why a chain: kie.ai's Gemini upstream intermittently answers with an account-level
+"Prohibited Use Policy" refusal — **HTTP 200, normal completion shape, the refusal sitting
+in the content where the answer should be**. On 2026-09-15 that text rendered verbatim on
+the home page's morning-brief card. The client now treats a refusal (or an empty answer)
+as `AIBlockedError` and moves to the next model, which is always a *different vendor* — a
+refusal is a property of that vendor's policy layer, so retrying the same one is futile.
+Every model failing throws one `AIError` naming each with its reason, which is what lands
+in the cron's status line.
+
+Why GPT leads (switched 2026-09-16): Gemini is the side that got blocked, and on a
+head-to-head of the same real daily-brief prompt GPT 5.2 caught a scheduled catalyst
+(Fed commentary) that Gemini dropped.
 
 This covers every caller at once: daily brief, market alert, per-signal commentary,
 yo-yo hunter, and the chat agent loop (safe to replay — all AI tools are reads). The
@@ -222,9 +234,7 @@ kie.ai model notes:
 - Wire formats: Claude models → `/claude/v1/messages`; everything else →
   `/{model}/v1/chat/completions` with the model in the *path*, not the body.
 
-To make GPT the primary instead, set `KIE_MODEL=gpt-5-2` in Vercel **and**
-`KIE_FALLBACK_MODEL=gemini-3.1-pro` — a fallback equal to the primary resolves to no
-fallback at all, so without the second var you'd be back to a single model.
+To change the lead or add a third model, edit `MODEL_CHAIN` and push — no dashboard step.
 
 ## Stack
 - **Framework**: Next.js

@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
   const settings = await prisma.settings.findUnique({ where: { id: 1 } });
-  const { model: aiModel, fallbackModel } = modelChain();
+  const [aiModel, ...fallbackModels] = modelChain();
   const etoroConfigured = !!process.env.ETORO_API_KEY && !!process.env.ETORO_USER_KEY;
 
   return (
@@ -48,15 +48,15 @@ export default async function SettingsPage() {
               {aiModel ?? "Not set"}
             </span>
           </div>
-          {fallbackModel && (
+          {fallbackModels.length > 0 && (
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Fallback model</span>
-              <span className="text-muted-foreground">{fallbackModel}</span>
+              <span className="text-muted-foreground">Fallback</span>
+              <span className="text-muted-foreground">{fallbackModels.join(" → ")}</span>
             </div>
           )}
           <p className="text-xs text-muted-foreground">
-            Set via the KIE_MODEL and KIE_FALLBACK_MODEL environment variables, not stored here.
-            The fallback runs whenever the primary errors, refuses, or answers empty.
+            The fallback runs whenever the model above errors, refuses, or answers empty. The
+            chain lives in the code (src/lib/ai/client.ts); KIE_MODEL_CHAIN overrides it.
           </p>
         </CardContent>
       </Card>
